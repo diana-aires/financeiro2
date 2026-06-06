@@ -116,6 +116,7 @@ const btnS = { background: C.green, color: "#fff", border: "none", borderRadius:
 const btnD = { background: C.red, color: "#fff", border: "none", borderRadius: 8, padding: "7px 14px", fontSize: 12, fontWeight: 600, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 5 };
 const btnI = { background: "none", border: "none", cursor: "pointer", padding: 3 };
 
+
 function Bar({ pct, color }) {
   return (
     <div style={{ background: C.border, borderRadius: 999, height: 6, overflow: "hidden" }}>
@@ -506,6 +507,7 @@ function Dashboard({ session, onLogout }) {
   const [filtro, setFiltro] = useState("");
   const [aiResp, setAiResp] = useState("");
   const [aiLoad, setAiLoad] = useState(false);
+  const [cartoes, setCartoes] = useState(CARTOES);
   const [aiQ, setAiQ] = useState("");
   const [toastMsg, setToastMsg] = useState("");
   const [showParcela, setShowParcela] = useState(false);
@@ -1014,56 +1016,95 @@ function Dashboard({ session, onLogout }) {
 )}
 
         {aba === "cartao" && (
-          <div style={{ animation: "fadeUp .4s ease" }}>
-            <div style={{ ...crd, marginBottom: 14 }}>
-              <div style={{ fontWeight: 600, fontSize: 14, color: C.navy }}>Parcelas no cartão</div>
-              <div style={{ fontSize: 12, color: C.grayD }}>
-                {parcelados.length} parcela(s) · Mensal: {fmt(parcelados.reduce((s, l) => s + Number(l.valor), 0))}
+  <div style={{ animation: "fadeUp .4s ease" }}>
+    <div style={{ ...crd, marginBottom: 14 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+        <div>
+          <div style={{ fontWeight: 600, fontSize: 14, color: C.navy }}>Parcelas no cartão</div>
+          <div style={{ fontSize: 12, color: C.grayD }}>
+            {parcelados.length} parcela(s) · Mensal: {fmt(parcelados.reduce((s, l) => s + Number(l.valor), 0))}
+          </div>
+        </div>
+        <button 
+          onClick={() => {
+            let novoCartao = prompt("Digite o nome do novo cartão:", "");
+            if (novoCartao && novoCartao.trim()) {
+              novoCartao = novoCartao.trim();
+              if (!cartoes.includes(novoCartao)) {
+                setCartoes([...cartoes, novoCartao]);
+                toast(`✅ Cartão "${novoCartao}" adicionado com sucesso!`);
+              } else {
+                toast(`⚠️ Cartão "${novoCartao}" já existe!`);
+              }
+            }
+          }}
+          style={{ ...btnS, gap: 6 }}
+        >
+          <i className="ti ti-plus" style={{ fontSize: 14 }} />
+          Novo Cartão
+        </button>
+      </div>
+    </div>
+
+    {parcelados.length === 0 ? (
+      <div style={{ ...crd, textAlign: "center", padding: "2rem", color: C.grayD, fontSize: 13 }}>
+        <i className="ti ti-credit-card" style={{ fontSize: 32, display: "block", marginBottom: 12, opacity: 0.5 }} />
+        Nenhuma parcela encontrada.
+        <div style={{ fontSize: 11, marginTop: 8, color: C.gray }}>
+          Adicione compras parceladas nos lançamentos.
+        </div>
+      </div>
+    ) : (
+      Object.entries(porCartao).map(([cartao, items]) => (
+        <div key={cartao} style={{ ...crd, marginBottom: 12 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <i className="ti ti-credit-card" style={{ fontSize: 16, color: C.navy }} />
+              <div>
+                <div style={{ fontWeight: 600, fontSize: 13, color: C.navy }}>{cartao}</div>
+                <div style={{ fontSize: 11, color: C.grayD }}>{items.length} item(ns)</div>
               </div>
             </div>
-            {parcelados.length === 0 ? (
-              <div style={{ ...crd, textAlign: "center", padding: "2rem", color: C.grayD, fontSize: 13 }}>Nenhuma parcela.</div>
-            ) : (
-              Object.entries(porCartao).map(([cartao, items]) => (
-                <div key={cartao} style={{ ...crd, marginBottom: 12 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-                    <div>
-                      <div style={{ fontWeight: 600, fontSize: 13, color: C.navy }}>{cartao}</div>
-                      <div style={{ fontSize: 11, color: C.grayD }}>{items.length} item(ns)</div>
-                    </div>
-                    <div style={{ fontSize: 14, fontWeight: 700, color: C.navy }}>
-                      {fmt(items.reduce((s, l) => s + Number(l.valor), 0))}/mês
-                    </div>
-                  </div>
-                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
-                    <thead>
-                      <tr style={{ borderBottom: "2px solid " + C.border }}>
-                        {["Descrição", "Parcela", "Progresso", "Valor", "Restante"].map((h) => <th key={h} style={{ textAlign: "left", padding: "6px 8px", fontWeight: 600, color: C.grayD }}>{h}</th>)}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {items.map((l) => {
-                        const pa = l.parcela_atual || 1;
-                        const pt = l.parcelas;
-                        const pct = (pa / pt) * 100;
-                        const rest = (pt - pa) * Number(l.valor);
-                        return (
-                          <tr key={l.id} style={{ borderBottom: "1px solid " + C.border }}>
-                            <td style={{ padding: 8, fontWeight: 500 }}>{l.descricao}</td>
-                            <td style={{ padding: 8, color: C.grayD }}>{pa}/{pt}</td>
-                            <td style={{ padding: 8, minWidth: 80 }}><Bar pct={pct} color={pct >= 100 ? C.green : C.purple} /></td>
-                            <td style={{ padding: 8, color: C.red }}>{fmt(l.valor)}</td>
-                            <td style={{ padding: 8, color: C.grayD }}>{fmt(rest)}</td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              ))
-            )}
+            <div style={{ fontSize: 14, fontWeight: 700, color: C.navy }}>
+              {fmt(items.reduce((s, l) => s + Number(l.valor), 0))}/mês
+            </div>
           </div>
-        )}
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+              <thead>
+                <tr style={{ borderBottom: "2px solid " + C.border }}>
+                  {["Descrição", "Parcela", "Progresso", "Valor", "Restante"].map((h) => (
+                    <th key={h} style={{ textAlign: "left", padding: "8px", fontWeight: 600, color: C.grayD }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {items.map((l) => {
+                  const pa = l.parcela_atual || 1;
+                  const pt = l.parcelas;
+                  const pct = (pa / pt) * 100;
+                  const rest = (pt - pa) * Number(l.valor);
+                  return (
+                    <tr key={l.id} style={{ borderBottom: "1px solid " + C.border }}>
+                      <td style={{ padding: 8, fontWeight: 500 }}>{l.descricao}</td>
+                      <td style={{ padding: 8, color: C.grayD }}>{pa}/{pt}</td>
+                      <td style={{ padding: 8, minWidth: 100 }}>
+                        <Bar pct={pct} color={pct >= 100 ? C.green : C.purple} />
+                        <span style={{ fontSize: 10, marginLeft: 8 }}>{Math.round(pct)}%</span>
+                      </td>
+                      <td style={{ padding: 8, color: C.red, whiteSpace: "nowrap" }}>{fmt(l.valor)}</td>
+                      <td style={{ padding: 8, color: C.grayD, whiteSpace: "nowrap" }}>{fmt(rest)}</td>
+                    </td>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ))
+    )}
+  </div>
+)}
 
         {aba === "metas" && (
           <div style={{ animation: "fadeUp .4s ease", display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(250px,1fr))", gap: 12 }}>
