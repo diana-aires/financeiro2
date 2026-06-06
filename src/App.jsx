@@ -7,7 +7,7 @@ const C = {
   navy: "#1E3A8A", navyL: "#2d4fa3", green: "#10B981", greenD: "#059669",
   greenL: "#34d399", slate: "#F8FAFC", gray: "#94A3B8", grayD: "#64748B",
   border: "#E2E8F0", white: "#FFFFFF", red: "#EF4444", amber: "#F59E0B",
-  purple: "#7C3AED",
+  purple: "#7C3AED", orange: "#F97316", teal: "#14B8A6",
 };
 
 /* ── Supabase helpers COM TRATAMENTO RADICAL ── */
@@ -103,6 +103,8 @@ const METAS_DEF = [
   { nome: "Investimentos Anuais", valor: 24000, atual: 0, prazo: "Dez/2025" },
 ];
 const CARTOES = ["Nubank", "Inter", "C6", "Itaú", "Bradesco", "Santander", "BB", "Caixa", "Outro"];
+const ICONES = ["ti-wallet", "ti-home", "ti-bolt", "ti-wifi", "ti-phone", "ti-brand-spotify", "ti-shopping-cart", "ti-bus", "ti-plane", "ti-movie", "ti-shopping-bag", "ti-chart-line", "ti-heart", "ti-makeup", "ti-package", "ti-gift", "ti-credit-card", "ti-building-bank", "ti-dots", "ti-run", "ti-school", "ti-shield", "ti-brand-netflix"];
+
 const fmt = (v) => "R$ " + Number(v).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const fmtPct = (v) => (Number(v) * 100).toFixed(1) + "%";
 const today = () => new Date().toISOString().split("T")[0];
@@ -110,6 +112,8 @@ const crd = { background: C.white, border: "1px solid " + C.border, borderRadius
 const inp = { width: "100%", boxSizing: "border-box", borderRadius: 8, border: "1px solid " + C.border, padding: "8px 10px", fontSize: 13, outline: "none" };
 const lab = { fontSize: 11, fontWeight: 600, color: C.grayD, marginBottom: 5, display: "block" };
 const btnP = { background: C.navy, color: "#fff", border: "none", borderRadius: 8, padding: "7px 14px", fontSize: 12, fontWeight: 600, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 5 };
+const btnS = { background: C.green, color: "#fff", border: "none", borderRadius: 8, padding: "7px 14px", fontSize: 12, fontWeight: 600, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 5 };
+const btnD = { background: C.red, color: "#fff", border: "none", borderRadius: 8, padding: "7px 14px", fontSize: 12, fontWeight: 600, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 5 };
 const btnI = { background: "none", border: "none", cursor: "pointer", padding: 3 };
 
 function Bar({ pct, color }) {
@@ -121,6 +125,7 @@ function Bar({ pct, color }) {
 }
 
 const BLANK = { tipo: "receita", cat: CATS_R[0], descricao: "", valor: "", data: today(), parcelas: "", parcela_atual: "", cartao: "" };
+const CATEGORIA_BLANK = { tipo: "despesa", nome: "", classificacao: "fixa", icone: "ti-tag", ativo: true };
 
 const CSS = `
 @keyframes spin{to{transform:rotate(360deg)}}
@@ -131,6 +136,8 @@ const CSS = `
 .row-hover:hover{background:${C.slate}}
 .btn-green{transition:all .2s}
 .btn-green:hover{background:${C.greenD}!important;transform:translateY(-1px)}
+.modal-overlay{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:1000}
+.modal-content{background:white;border-radius:20px;max-width:500px;width:90%;max-height:90vh;overflow-y:auto}
 `;
 
 /* ════ AUTH ════ */
@@ -219,11 +226,279 @@ function AuthScreen({ onAuth }) {
   );
 }
 
+/* ════ GERENCIAMENTO DE CATEGORIAS ════ */
+function GerenciarCategorias({ token, catsR, catsD, onCategoriasChange }) {
+  const [categorias, setCategorias] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [showModal, setShowModal] = useState(false);
+  const [editando, setEditando] = useState(null);
+  const [form, setForm] = useState({ ...CATEGORIA_BLANK });
+  const [toastMsg, setToastMsg] = useState("");
+  const [filtroTipo, setFiltroTipo] = useState("todos");
+  const [filtroClassificacao, setFiltroClassificacao] = useState("todos");
+
+  function toast(m) { setToastMsg(m); setTimeout(() => setToastMsg(""), 3000); }
+
+  useEffect(() => {
+    if (!token) return;
+    carregarCategorias();
+  }, [token]);
+
+  async function carregarCategorias() {
+    setLoading(true);
+    const data = await sb("/categorias?order=ordem.asc", { token });
+    setCategorias(Array.isArray(data) ? data : []);
+    setLoading(false);
+  }
+
+  async function salvarCategoria() {
+    if (!form.nome.trim()) {
+      toast("Preencha o nome da categoria");
+      return;
+    }
+
+    const obj = {
+      tipo: form.tipo,
+      nome: form.nome.trim(),
+      classificacao: form.classificacao,
+      icone: form.icone,
+      ativo: true,
+      ordem: categorias.filter(c => c.tipo === form.tipo).length + 1
+    };
+
+    try {
+      if (editando) {
+        await sb("/categorias?id=eq." + editando.id, { method: "PATCH", token, body: obj });
+        toast("Categoria atualizada!");
+      } else {
+        await sb("/categorias", { method: "POST", token, body: obj });
+        toast("Categoria adicionada!");
+      }
+      await carregarCategorias();
+      if (onCategoriasChange) onCategoriasChange();
+      fecharModal();
+    } catch (e) {
+      console.error('Erro:', e);
+      toast("Erro: " + e.message);
+    }
+  }
+
+  async function desativarCategoria(cat) {
+    if (window.confirm(`Desativar a categoria "${cat.nome}"? Lançamentos existentes não serão afetados.`)) {
+      try {
+        await sb("/categorias?id=eq." + cat.id, { method: "PATCH", token, body: { ativo: false } });
+        await carregarCategorias();
+        if (onCategoriasChange) onCategoriasChange();
+        toast("Categoria desativada!");
+      } catch (e) {
+        toast("Erro: " + e.message);
+      }
+    }
+  }
+
+  async function reativarCategoria(cat) {
+    try {
+      await sb("/categorias?id=eq." + cat.id, { method: "PATCH", token, body: { ativo: true } });
+      await carregarCategorias();
+      if (onCategoriasChange) onCategoriasChange();
+      toast("Categoria reativada!");
+    } catch (e) {
+      toast("Erro: " + e.message);
+    }
+  }
+
+  function abrirModal(cat = null) {
+    if (cat) {
+      setEditando(cat);
+      setForm({
+        tipo: cat.tipo,
+        nome: cat.nome,
+        classificacao: cat.classificacao,
+        icone: cat.icone || "ti-tag",
+        ativo: cat.ativo
+      });
+    } else {
+      setEditando(null);
+      setForm({ ...CATEGORIA_BLANK });
+    }
+    setShowModal(true);
+  }
+
+  function fecharModal() {
+    setShowModal(false);
+    setEditando(null);
+    setForm({ ...CATEGORIA_BLANK });
+  }
+
+  const categoriasFiltradas = categorias.filter(cat => {
+    if (filtroTipo !== "todos" && cat.tipo !== filtroTipo) return false;
+    if (filtroClassificacao !== "todos" && cat.classificacao !== filtroClassificacao) return false;
+    return true;
+  });
+
+  const categoriasReceita = categoriasFiltradas.filter(c => c.tipo === "receita" && c.ativo);
+  const categoriasDespesa = categoriasFiltradas.filter(c => c.tipo === "despesa" && c.ativo);
+  const categoriasInativas = categorias.filter(c => !c.ativo);
+
+  return (
+    <div style={{ animation: "fadeUp .4s ease" }}>
+      {toastMsg && <div style={{ position: "fixed", bottom: 24, right: 24, background: C.navy, color: "#fff", borderRadius: 10, padding: "10px 18px", fontSize: 13, fontWeight: 500, zIndex: 999 }}>{toastMsg}</div>}
+      
+      <div style={{ ...crd, marginBottom: 14 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+          <div>
+            <div style={{ fontWeight: 600, fontSize: 14, color: C.navy }}>Gerenciar Categorias</div>
+            <div style={{ fontSize: 11, color: C.grayD }}>Adicione, edite ou desative categorias de receitas e despesas</div>
+          </div>
+          <button onClick={() => abrirModal()} style={{ ...btnS, gap: 6 }}>
+            <i className="ti ti-plus" style={{ fontSize: 14 }} />
+            Nova Categoria
+          </button>
+        </div>
+
+        <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
+          <select value={filtroTipo} onChange={(e) => setFiltroTipo(e.target.value)} style={{ ...inp, width: "auto" }}>
+            <option value="todos">Todos os tipos</option>
+            <option value="receita">Receitas</option>
+            <option value="despesa">Despesas</option>
+          </select>
+          <select value={filtroClassificacao} onChange={(e) => setFiltroClassificacao(e.target.value)} style={{ ...inp, width: "auto" }}>
+            <option value="todos">Todas classificações</option>
+            <option value="fixa">Fixas</option>
+            <option value="variavel">Variáveis</option>
+          </select>
+        </div>
+
+        {loading ? (
+          <div style={{ textAlign: "center", padding: "2rem", color: C.grayD }}>
+            <i className="ti ti-loader-2" style={{ animation: "spin 1s linear infinite", fontSize: 24 }} />
+          </div>
+        ) : (
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(300px,1fr))", gap: 16 }}>
+            {/* Receitas */}
+            <div style={{ background: C.slate, borderRadius: 12, padding: 12 }}>
+              <div style={{ fontWeight: 600, fontSize: 13, color: C.green, marginBottom: 12, display: "flex", alignItems: "center", gap: 6 }}>
+                <i className="ti ti-trending-up" />
+                Receitas ({categoriasReceita.length})
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {categoriasReceita.map(cat => (
+                  <div key={cat.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "6px 8px", background: C.white, borderRadius: 8, border: "1px solid " + C.border }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <i className={cat.icone || "ti-tag"} style={{ fontSize: 14, color: C.green }} />
+                      <span style={{ fontSize: 12, fontWeight: 500 }}>{cat.nome}</span>
+                      <span style={{ fontSize: 10, padding: "2px 6px", borderRadius: 99, background: cat.classificacao === "fixa" ? C.navy + "20" : C.purple + "20", color: cat.classificacao === "fixa" ? C.navy : C.purple }}>
+                        {cat.classificacao}
+                      </span>
+                    </div>
+                    <div style={{ display: "flex", gap: 4 }}>
+                      <button onClick={() => abrirModal(cat)} style={btnI}><i className="ti ti-edit" style={{ fontSize: 12, color: C.navy }} /></button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Despesas */}
+            <div style={{ background: C.slate, borderRadius: 12, padding: 12 }}>
+              <div style={{ fontWeight: 600, fontSize: 13, color: C.red, marginBottom: 12, display: "flex", alignItems: "center", gap: 6 }}>
+                <i className="ti ti-trending-down" />
+                Despesas ({categoriasDespesa.length})
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {categoriasDespesa.map(cat => (
+                  <div key={cat.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "6px 8px", background: C.white, borderRadius: 8, border: "1px solid " + C.border }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <i className={cat.icone || "ti-tag"} style={{ fontSize: 14, color: C.red }} />
+                      <span style={{ fontSize: 12, fontWeight: 500 }}>{cat.nome}</span>
+                      <span style={{ fontSize: 10, padding: "2px 6px", borderRadius: 99, background: cat.classificacao === "fixa" ? C.navy + "20" : C.purple + "20", color: cat.classificacao === "fixa" ? C.navy : C.purple }}>
+                        {cat.classificacao}
+                      </span>
+                    </div>
+                    <div style={{ display: "flex", gap: 4 }}>
+                      <button onClick={() => abrirModal(cat)} style={btnI}><i className="ti ti-edit" style={{ fontSize: 12, color: C.navy }} /></button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Categorias inativas */}
+        {categoriasInativas.length > 0 && (
+          <div style={{ marginTop: 16, padding: 12, background: C.slate, borderRadius: 12 }}>
+            <div style={{ fontWeight: 600, fontSize: 12, color: C.grayD, marginBottom: 8 }}>Categorias Inativas</div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+              {categoriasInativas.map(cat => (
+                <div key={cat.id} style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 8px", background: C.white, borderRadius: 6, border: "1px solid " + C.border }}>
+                  <span style={{ fontSize: 11, color: C.grayD }}>{cat.nome}</span>
+                  <button onClick={() => reativarCategoria(cat)} style={{ ...btnI, color: C.green }}><i className="ti ti-reload" style={{ fontSize: 11 }} /></button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Modal de cadastro/edição */}
+      {showModal && (
+        <div className="modal-overlay" onClick={fecharModal}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ padding: "1.5rem" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+              <h3 style={{ fontSize: 18, fontWeight: 600, color: C.navy, margin: 0 }}>{editando ? "Editar Categoria" : "Nova Categoria"}</h3>
+              <button onClick={fecharModal} style={{ ...btnI }}><i className="ti ti-x" style={{ fontSize: 20, color: C.grayD }} /></button>
+            </div>
+
+            <div style={{ marginBottom: 12 }}>
+              <label style={lab}>Tipo</label>
+              <select value={form.tipo} onChange={(e) => setForm(f => ({ ...f, tipo: e.target.value }))} style={inp}>
+                <option value="receita">Receita</option>
+                <option value="despesa">Despesa</option>
+              </select>
+            </div>
+
+            <div style={{ marginBottom: 12 }}>
+              <label style={lab}>Nome da Categoria</label>
+              <input type="text" value={form.nome} onChange={(e) => setForm(f => ({ ...f, nome: e.target.value }))} placeholder="Ex: Academia, Streaming, ..." style={inp} />
+            </div>
+
+            <div style={{ marginBottom: 12 }}>
+              <label style={lab}>Classificação</label>
+              <select value={form.classificacao} onChange={(e) => setForm(f => ({ ...f, classificacao: e.target.value }))} style={inp}>
+                <option value="fixa">Fixa (mensal previsível)</option>
+                <option value="variavel">Variável (valor pode mudar)</option>
+              </select>
+            </div>
+
+            <div style={{ marginBottom: 20 }}>
+              <label style={lab}>Ícone</label>
+              <select value={form.icone} onChange={(e) => setForm(f => ({ ...f, icone: e.target.value }))} style={inp}>
+                {ICONES.map(icone => (
+                  <option key={icone} value={icone}>
+                    {icone.replace("ti-", "")}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <button onClick={fecharModal} style={{ ...btnP, background: C.grayD }}>Cancelar</button>
+              <button onClick={salvarCategoria} style={btnS}>Salvar</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ════ DASHBOARD COM PROTEÇÃO RADICAL ════ */
 function Dashboard({ session, onLogout }) {
   const [aba, setAba] = useState("dashboard");
   const [lanc, setLanc] = useState([]);
   const [metas, setMetas] = useState([]);
+  const [categorias, setCategorias] = useState([]);
   const [loading, setLoading] = useState(true);
   const [form, setForm] = useState({ ...BLANK });
   const [editId, setEditId] = useState(null);
@@ -238,6 +513,18 @@ function Dashboard({ session, onLogout }) {
   const uid = session?.user?.id;
 
   function toast(m) { setToastMsg(m); setTimeout(() => setToastMsg(""), 3000); }
+
+  // Carregar categorias do banco
+  useEffect(() => {
+    if (!token) return;
+    sb("/categorias?order=ordem.asc", { token })
+      .then(data => {
+        if (Array.isArray(data)) {
+          setCategorias(data);
+        }
+      })
+      .catch(err => console.error('Erro ao carregar categorias:', err));
+  }, [token]);
 
   const safeLanc = useMemo(() => {
     if (!lanc) return [];
@@ -256,6 +543,22 @@ function Dashboard({ session, onLogout }) {
     }
     return metas;
   }, [metas]);
+
+  // Obter listas de categorias do banco ou fallback
+  const catsRFromDB = categorias.filter(c => c.tipo === "receita" && c.ativo).map(c => c.nome);
+  const catsDFromDB = categorias.filter(c => c.tipo === "despesa" && c.ativo).map(c => c.nome);
+  const catsRList = catsRFromDB.length > 0 ? catsRFromDB : CATS_R;
+  const catsDList = catsDFromDB.length > 0 ? catsDFromDB : CATS_D;
+
+  // Construir TIPO_R e TIPO_D dinâmicos
+  const tipoRFromDB = {};
+  const tipoDFromDB = {};
+  categorias.forEach(c => {
+    if (c.tipo === "receita") tipoRFromDB[c.nome] = c.classificacao;
+    if (c.tipo === "despesa") tipoDFromDB[c.nome] = c.classificacao;
+  });
+  const TIPO_R_DINAMICO = Object.keys(tipoRFromDB).length > 0 ? tipoRFromDB : TIPO_R;
+  const TIPO_D_DINAMICO = Object.keys(tipoDFromDB).length > 0 ? tipoDFromDB : TIPO_D;
 
   useEffect(() => {
     if (!token) return;
@@ -317,9 +620,9 @@ function Dashboard({ session, onLogout }) {
   const tR = rec.reduce((s, l) => s + Number(l?.valor || 0), 0);
   const tD = desp.reduce((s, l) => s + Number(l?.valor || 0), 0);
   const saldo = tR - tD;
-  const rF = rec.filter((l) => TIPO_R[l?.cat] === "fixa").reduce((s, l) => s + Number(l?.valor || 0), 0);
-  const rV = rec.filter((l) => TIPO_R[l?.cat] === "variavel").reduce((s, l) => s + Number(l?.valor || 0), 0);
-  const dF = desp.filter((l) => TIPO_D[l?.cat] === "fixa").reduce((s, l) => s + Number(l?.valor || 0), 0);
+  const rF = rec.filter((l) => TIPO_R_DINAMICO[l?.cat] === "fixa").reduce((s, l) => s + Number(l?.valor || 0), 0);
+  const rV = rec.filter((l) => TIPO_R_DINAMICO[l?.cat] === "variavel").reduce((s, l) => s + Number(l?.valor || 0), 0);
+  const dF = desp.filter((l) => TIPO_D_DINAMICO[l?.cat] === "fixa").reduce((s, l) => s + Number(l?.valor || 0), 0);
   const inv = desp.filter((l) => l?.cat === "Investimento").reduce((s, l) => s + Number(l?.valor || 0), 0);
   const fin = desp.filter((l) => l?.cat === "Financiamento").reduce((s, l) => s + Number(l?.valor || 0), 0);
   const txP = tR > 0 ? saldo / tR : 0;
@@ -349,7 +652,7 @@ function Dashboard({ session, onLogout }) {
     setEditId(l.id);
     setForm({ 
       tipo: l.tipo || "receita", 
-      cat: l.cat || CATS_R[0], 
+      cat: l.cat || catsRList[0], 
       descricao: l.descricao || "", 
       valor: String(l.valor || ""), 
       data: l.data || today(), 
@@ -363,7 +666,7 @@ function Dashboard({ session, onLogout }) {
   
   function cancelEdit() { 
     setEditId(null); 
-    setForm({ ...BLANK }); 
+    setForm({ ...BLANK, cat: form.tipo === "receita" ? catsRList[0] : catsDList[0] }); 
     setShowParcela(false); 
   }
 
@@ -404,7 +707,7 @@ function Dashboard({ session, onLogout }) {
       console.error('Erro ao salvar:', e);
       toast("Erro: " + e.message); 
     }
-    setForm({ ...BLANK }); 
+    setForm({ ...BLANK, cat: form.tipo === "receita" ? catsRList[0] : catsDList[0] }); 
     setEditId(null); 
     setShowParcela(false); 
     setSaving(false);
@@ -499,6 +802,7 @@ function Dashboard({ session, onLogout }) {
     { id: "lancamentos", label: "Lançamentos", icon: "ti-list" },
     { id: "cartao", label: "Cartão", icon: "ti-credit-card" },
     { id: "metas", label: "Metas", icon: "ti-target" },
+    { id: "categorias", label: "Categorias", icon: "ti-tags" },
     { id: "ia", label: "IA", icon: "ti-sparkles" },
   ];
 
@@ -548,7 +852,7 @@ function Dashboard({ session, onLogout }) {
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(260px,1fr))", gap: 10, marginBottom: 14 }}>
               <div style={crd}>
                 <div style={{ fontWeight: 600, fontSize: 13, color: C.navy, marginBottom: 12 }}>Receita</div>
-                {[["CLT", rF, C.navy], ["Variável", rV, C.green]].map(([l, v, c]) => (
+                {[["Fixa", rF, C.navy], ["Variável", rV, C.green]].map(([l, v, c]) => (
                   <div key={l} style={{ marginBottom: 10 }}>
                     <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 4 }}>
                       <span style={{ color: C.grayD }}>{l}</span>
@@ -599,7 +903,7 @@ function Dashboard({ session, onLogout }) {
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(130px,1fr))", gap: 8, marginBottom: 10 }}>
                 <div>
                   <label style={lab}>Tipo</label>
-                  <select value={form.tipo} onChange={(e) => setForm((f) => ({ ...f, tipo: e.target.value, cat: e.target.value === "receita" ? CATS_R[0] : CATS_D[0] }))} style={inp}>
+                  <select value={form.tipo} onChange={(e) => setForm((f) => ({ ...f, tipo: e.target.value, cat: e.target.value === "receita" ? catsRList[0] : catsDList[0] }))} style={inp}>
                     <option value="receita">Receita</option>
                     <option value="despesa">Despesa</option>
                   </select>
@@ -607,7 +911,7 @@ function Dashboard({ session, onLogout }) {
                 <div>
                   <label style={lab}>Categoria</label>
                   <select value={form.cat} onChange={(e) => setForm((f) => ({ ...f, cat: e.target.value }))} style={inp}>
-                    {(form.tipo === "receita" ? CATS_R : CATS_D).map((c) => <option key={c}>{c}</option>)}
+                    {(form.tipo === "receita" ? catsRList : catsDList).map((c) => <option key={c}>{c}</option>)}
                   </select>
                 </div>
                 <div>
@@ -689,7 +993,7 @@ function Dashboard({ session, onLogout }) {
                             <button onClick={() => startEdit(l)} style={btnI}><i className="ti ti-edit" style={{ fontSize: 13, color: C.navy }} /></button>
                             <button onClick={() => duplicar(l)} style={btnI}><i className="ti ti-copy" style={{ fontSize: 13, color: C.purple }} /></button>
                             <button onClick={() => del(l.id)} style={btnI}><i className="ti ti-trash" style={{ fontSize: 13, color: C.red }} /></button>
-                          </td>
+                          </table>
                         </tr>
                       ))}
                     </tbody>
@@ -792,6 +1096,21 @@ function Dashboard({ session, onLogout }) {
               );
             })}
           </div>
+        )}
+
+        {aba === "categorias" && (
+          <GerenciarCategorias 
+            token={token} 
+            catsR={catsRList} 
+            catsD={catsDList} 
+            onCategoriasChange={() => {
+              // Recarregar categorias quando mudar
+              sb("/categorias?order=ordem.asc", { token })
+                .then(data => {
+                  if (Array.isArray(data)) setCategorias(data);
+                });
+            }}
+          />
         )}
 
         {aba === "ia" && (
