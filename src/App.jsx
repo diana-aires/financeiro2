@@ -94,9 +94,9 @@ async function sb(path, opts = {}) {
 
 /* ── Constants ── */
 const CATS_R = ["Salário CLT", "Consultoria", "Honorários", "Comissão", "Projeto", "Curso/Treinamento", "Prestação de Serviços", "Outro"];
-const CATS_D = ["Aluguel", "Energia", "Internet", "Assinaturas", "Alimentação", "Transporte", "Viagem", "Lazer", "Compras", "Investimento", "Saúde", "Beleza", "Insumos", "Doação", "Empréstimo", "Financiamento", "Outro"];
+const CATS_D = ["Aluguel", "Energia", "Internet", "Telefone", "Assinaturas", "Alimentação", "Transporte", "Viagem", "Lazer", "Compras", "Investimento", "Saúde", "Beleza", "Insumos", "Doação", "Empréstimo", "Financiamento", "Outro"];
 const TIPO_R = { "Salário CLT": "fixa", Consultoria: "variavel", Honorários: "variavel", Comissão: "variavel", Projeto: "variavel", "Curso/Treinamento": "variavel", "Prestação de Serviços": "variavel", Outro: "variavel" };
-const TIPO_D = { Aluguel: "fixa", Energia: "fixa", Internet: "fixa", Assinaturas: "fixa", Alimentação: "variavel", Transporte: "variavel", Viagem: "variavel", Lazer: "variavel", Compras: "variavel", Investimento: "variavel", Saúde: "variavel", Beleza: "variavel", Insumos: "variavel", Doação: "variavel", Empréstimo: "fixa", Financiamento: "fixa", Outro: "variavel" };
+const TIPO_D = { Aluguel: "fixa", Energia: "fixa", Internet: "fixa", Telefone: "fixa", Assinaturas: "fixa", Alimentação: "variavel", Transporte: "variavel", Viagem: "variavel", Lazer: "variavel", Compras: "variavel", Investimento: "variavel", Saúde: "variavel", Beleza: "variavel", Insumos: "variavel", Doação: "variavel", Empréstimo: "fixa", Financiamento: "fixa", Outro: "variavel" };
 const METAS_DEF = [
   { nome: "Reserva de Emergência", valor: 30000, atual: 0, prazo: "Dez/2025" },
   { nome: "Viagem Internacional", valor: 12000, atual: 0, prazo: "Ago/2026" },
