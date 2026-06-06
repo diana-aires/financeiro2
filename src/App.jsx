@@ -1178,7 +1178,6 @@ function Dashboard({ session, onLogout }) {
 )}
 
 /* ════ LANDING PAGE ════ */
-/* ════ LANDING PAGE ════ */
 function Landing({ onEnter }) {
   return (
     <div style={{ color: "#1E293B" }}>
@@ -1210,7 +1209,6 @@ function Landing({ onEnter }) {
   );
 }
 
-/* ════ ROOT APP ════ */
 /* ════ ROOT APP ════ */
 export default function App() {
   const [screen, setScreen] = useState("landing");
