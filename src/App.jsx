@@ -550,62 +550,88 @@ function Dashboard({ session, onLogout }) {
       <div style={{ maxWidth: 1100, margin: "0 auto", padding: "1.25rem" }}>
         
         {/* DASHBOARD */}
-        {aba === "dashboard" && (
-          <div style={{ animation: "fadeUp .4s ease" }}>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(140px,1fr))", gap: 10, marginBottom: 14 }}>
-              {[{ l: "Receita", v: fmt(tR), c: C.green }, { l: "Despesas", v: fmt(tD), c: C.red }, { l: "Saldo", v: fmt(saldo), c: saldo >= 0 ? C.navy : C.red }, { l: "Investido", v: fmt(inv), c: C.purple }, { l: "Financiamento", v: fmt(fin), c: C.amber }].map((k) => (
-                <div key={k.l} style={{ ...crd, borderTop: "3px solid " + k.c, padding: "1rem" }}>
-                  <div style={{ fontSize: 10, fontWeight: 600, color: C.grayD, textTransform: "uppercase", marginBottom: 6 }}>{k.l}</div>
-                  <div style={{ fontSize: 18, fontWeight: 700, color: k.c }}>{k.v}</div>
-                </div>
-              ))}
-            </div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(260px,1fr))", gap: 10, marginBottom: 14 }}>
-              <div style={crd}>
-                <div style={{ fontWeight: 600, fontSize: 13, color: C.navy, marginBottom: 12 }}>Receita</div>
-                {[["Fixa", rF, C.navy], ["Variável", rV, C.green]].map(([l, v, c]) => (
-                  <div key={l} style={{ marginBottom: 10 }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 4 }}>
-                      <span style={{ color: C.grayD }}>{l}</span>
-                      <span style={{ fontWeight: 600, color: c }}>{tR > 0 ? ((v / tR) * 100).toFixed(1) : 0}%</span>
-                    </div>
-                    <Bar pct={tR > 0 ? (v / tR) * 100 : 0} color={c} />
-                  </div>
-                ))}
-              </div>
-              <div style={crd}>
-                <div style={{ fontWeight: 600, fontSize: 13, color: C.navy, marginBottom: 12 }}>Indicadores</div>
-                {[{ l: "Poupança", v: fmtPct(txP), ok: txP >= .2 }, { l: "Investimento", v: fmtPct(txI), ok: txI >= .1 }, { l: "Fixas", v: fmtPct(cFx), ok: cFx <= .5 }, { l: "CLT", v: fmtPct(dC), ok: dC <= .7 }].map((k) => (
-                  <div key={k.l} style={{ display: "flex", alignItems: "center", padding: "5px 0", borderBottom: "1px solid " + C.border }}>
-                    <span style={{ flex: 1, fontSize: 12, color: C.grayD }}>{k.l}</span>
-                    <span style={{ fontSize: 12, fontWeight: 600, color: k.ok ? C.green : C.amber }}>{k.v}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-            <div style={crd}>
-              <div style={{ fontWeight: 600, fontSize: 13, color: C.navy, marginBottom: 12 }}>Metas</div>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))", gap: 10 }}>
-                {safeMetas.map((m) => {
-                  const p = Math.min(100, (m.atual / m.valor) * 100);
-                  return (
-                    <div key={m.id} style={{ background: C.slate, borderRadius: 10, padding: 10, border: "1px solid " + C.border }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
-                        <span style={{ fontSize: 11, fontWeight: 600, color: C.navy }}>{m.nome}</span>
-                        <span style={{ fontSize: 11, fontWeight: 700, color: p >= 100 ? C.green : C.navy }}>{Math.round(p)}%</span>
-                      </div>
-                      <Bar pct={p} color={p >= 100 ? C.green : C.navy} />
-                      <div style={{ fontSize: 10, color: C.grayD, marginTop: 4 }}>{fmt(m.atual)} / {fmt(m.valor)}</div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
+        {/* DASHBOARD */}
+{aba === "dashboard" && (
+  <div style={{ animation: "fadeUp .4s ease" }}>
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(140px,1fr))", gap: 10, marginBottom: 14 }}>
+      {[
+        { l: "Receita", v: fmt(tR), c: C.green }, 
+        { l: "Despesas", v: fmt(tD), c: C.red }, 
+        { l: "Saldo", v: fmt(saldo), c: saldo >= 0 ? C.navy : C.red }, 
+        { l: "Investido", v: fmt(inv), c: C.purple }, 
+        { l: "Financiamento", v: fmt(fin), c: C.amber }
+      ].map((k) => (
+        <div key={k.l} style={{ ...crd, borderTop: "3px solid " + k.c, padding: "1rem" }}>
+          <div style={{ fontSize: 10, fontWeight: 600, color: C.grayD, textTransform: "uppercase", marginBottom: 6 }}>
+            {k.l}
           </div>
-        )}
+          <div style={{ fontSize: 18, fontWeight: 700, color: k.c }}>{k.v}</div>
+        </div>
+      ))}
+    </div>
+    
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(260px,1fr))", gap: 10, marginBottom: 14 }}>
+      <div style={crd}>
+        <div style={{ fontWeight: 600, fontSize: 13, color: C.navy, marginBottom: 12 }}>Receita</div>
+        {[
+          ["Fixa", rF, C.navy], 
+          ["Variável", rV, C.green]
+        ].map(([l, v, c]) => (
+          <div key={l} style={{ marginBottom: 10 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 4 }}>
+              <span style={{ color: C.grayD }}>{l}</span>
+              <span style={{ fontWeight: 600, color: c }}>
+                {tR > 0 ? ((v / tR) * 100).toFixed(1) : 0}%
+              </span>
+            </div>
+            <Bar pct={tR > 0 ? (v / tR) * 100 : 0} color={c} />
+          </div>
+        ))}
+      </div>
+      
+      <div style={crd}>
+        <div style={{ fontWeight: 600, fontSize: 13, color: C.navy, marginBottom: 12 }}>Indicadores</div>
+        {[
+          { l: "Poupança", v: fmtPct(txP), ok: txP >= .2 }, 
+          { l: "Investimento", v: fmtPct(txI), ok: txI >= .1 }, 
+          { l: "Fixas", v: fmtPct(cFx), ok: cFx <= .5 }, 
+          { l: "CLT", v: fmtPct(dC), ok: dC <= .7 }
+        ].map((k) => (
+          <div key={k.l} style={{ display: "flex", alignItems: "center", padding: "5px 0", borderBottom: "1px solid " + C.border }}>
+            <span style={{ flex: 1, fontSize: 12, color: C.grayD }}>{k.l}</span>
+            <span style={{ fontSize: 12, fontWeight: 600, color: k.ok ? C.green : C.amber }}>{k.v}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+    
+    <div style={crd}>
+      <div style={{ fontWeight: 600, fontSize: 13, color: C.navy, marginBottom: 12 }}>Metas</div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))", gap: 10 }}>
+        {safeMetas.map((m) => {
+          const p = Math.min(100, (m.atual / m.valor) * 100);
+          return (
+            <div key={m.id} style={{ background: C.slate, borderRadius: 10, padding: 10, border: "1px solid " + C.border }}>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
+                <span style={{ fontSize: 11, fontWeight: 600, color: C.navy }}>{m.nome}</span>
+                <span style={{ fontSize: 11, fontWeight: 700, color: p >= 100 ? C.green : C.navy }}>
+                  {Math.round(p)}%
+                </span>
+              </div>
+              <Bar pct={p} color={p >= 100 ? C.green : C.navy} />
+              <div style={{ fontSize: 10, color: C.grayD, marginTop: 4 }}>
+                {fmt(m.atual)} / {fmt(m.valor)}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  </div>
+)}
 
-        {/* LANÇAMENTOS */}
-        {aba === "lancamentos" && (
+{/* LANÇAMENTOS */}
+{aba === "lancamentos" && (
   <div style={{ animation: "fadeUp .4s ease" }}>
     {/* FORMULÁRIO DE LANÇAMENTO */}
     <div style={{ ...crd, marginBottom: 14 }}>
@@ -621,7 +647,6 @@ function Dashboard({ session, onLogout }) {
       </div>
       
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(130px,1fr))", gap: 8, marginBottom: 10 }}>
-        {/* Tipo */}
         <div>
           <label style={lab}>Tipo</label>
           <select 
@@ -638,7 +663,6 @@ function Dashboard({ session, onLogout }) {
           </select>
         </div>
         
-        {/* Categoria */}
         <div>
           <label style={lab}>Categoria</label>
           <select 
@@ -652,7 +676,6 @@ function Dashboard({ session, onLogout }) {
           </select>
         </div>
         
-        {/* Data da Compra */}
         <div>
           <label style={lab}>Data da Compra</label>
           <input 
@@ -663,7 +686,6 @@ function Dashboard({ session, onLogout }) {
           />
         </div>
         
-        {/* Data de Vencimento */}
         <div>
           <label style={lab}>Data Vencimento</label>
           <input 
@@ -674,7 +696,6 @@ function Dashboard({ session, onLogout }) {
           />
         </div>
         
-        {/* Valor */}
         <div>
           <label style={lab}>Valor</label>
           <input 
@@ -687,7 +708,6 @@ function Dashboard({ session, onLogout }) {
           />
         </div>
         
-        {/* Descrição */}
         <div style={{ gridColumn: "1 / -1" }}>
           <label style={lab}>Descrição</label>
           <input 
@@ -701,7 +721,6 @@ function Dashboard({ session, onLogout }) {
         </div>
       </div>
 
-      {/* SEÇÃO DE PARCELAMENTO */}
       <div style={{ marginBottom: 12 }}>
         <button 
           onClick={() => setShowParcela(!showParcela)} 
@@ -856,7 +875,7 @@ function Dashboard({ session, onLogout }) {
                       <i className="ti ti-trash" style={{ fontSize: 13, color: C.red }} />
                     </button>
                   </td>
-                <tr>
+                </tr>
               ))}
             </tbody>
             <tfoot>
@@ -875,10 +894,9 @@ function Dashboard({ session, onLogout }) {
   </div>
 )}
 
-        {/* CARTÃO - PARCELAS POR MÊS */}
-       {aba === "cartao" && (
+{/* CARTÃO - PARCELAS POR MÊS */}
+{aba === "cartao" && (
   <div style={{ animation: "fadeUp .4s ease" }}>
-    {/* CABEÇALHO */}
     <div style={{ ...crd, marginBottom: 14 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
         <div>
@@ -907,7 +925,6 @@ function Dashboard({ session, onLogout }) {
         </button>
       </div>
       
-      {/* LISTA DE CARTÕES */}
       <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
         {cartoes.map((cartao) => (
           <span key={cartao} style={{ 
@@ -923,7 +940,6 @@ function Dashboard({ session, onLogout }) {
       </div>
     </div>
 
-    {/* PARCELAS ORGANIZADAS POR MÊS */}
     {Object.keys(parcelasPorMes).length === 0 ? (
       <div style={{ ...crd, textAlign: "center", padding: "3rem", color: C.grayD, fontSize: 13 }}>
         <i className="ti ti-credit-card-off" style={{ fontSize: 48, display: "block", marginBottom: 16, opacity: 0.5 }} />
@@ -940,7 +956,6 @@ function Dashboard({ session, onLogout }) {
         
         return (
           <div key={mes} style={{ ...crd, marginBottom: 16 }}>
-            {/* CABEÇALHO DO MÊS */}
             <div style={{ 
               display: "flex", 
               justifyContent: "space-between", 
@@ -982,7 +997,6 @@ function Dashboard({ session, onLogout }) {
               </div>
             </div>
 
-            {/* TABELA DO MÊS */}
             <div style={{ overflowX: "auto" }}>
               <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
                 <thead>
@@ -1059,7 +1073,6 @@ function Dashboard({ session, onLogout }) {
               </table>
             </div>
 
-            {/* BARRA DE PROGRESSO DO MÊS */}
             <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid " + C.border }}>
               <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, marginBottom: 6 }}>
                 <span style={{ color: C.grayD }}>Progresso de pagamento do mês</span>
@@ -1076,75 +1089,93 @@ function Dashboard({ session, onLogout }) {
   </div>
 )}
 
-        {/* METAS */}
-        {aba === "metas" && (
-          <div style={{ animation: "fadeUp .4s ease", display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(250px,1fr))", gap: 12 }}>
-            {safeMetas.map((m) => {
-              const p = Math.min(100, (m.atual / m.valor) * 100);
-              return (
-                <div key={m.id} style={{ ...crd, borderTop: "3px solid " + (p >= 100 ? C.green : C.navy) }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 10 }}>
-                    <div>
-                      <div style={{ fontWeight: 600, fontSize: 14, color: C.navy }}>{m.nome}</div>
-                      <div style={{ fontSize: 11, color: C.grayD }}>{m.prazo}</div>
-                    </div>
-                    <div style={{ fontSize: 18, fontWeight: 700, color: p >= 100 ? C.green : C.navy }}>{Math.round(p)}%</div>
-                  </div>
-                  <Bar pct={p} color={p >= 100 ? C.green : C.navy} />
-                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: C.grayD, margin: "8px 0 12px" }}>
-                    <span>{fmt(m.atual)}</span>
-                    <span>Meta: {fmt(m.valor)}</span>
-                  </div>
-                  <div style={{ display: "flex", gap: 6 }}>
-                    <input type="number" min="0" id={"mi-" + m.id} placeholder="Valor" style={{ ...inp, flex: 1 }} />
-                    <button onClick={() => {
-                      const el = document.getElementById("mi-" + m.id);
-                      const v = parseFloat(el.value);
-                      if (!isNaN(v) && v > 0) {
-                        updMeta(m.id, v);
-                        el.value = "";
-                      }
-                    }} style={btnP}>Aportar</button>
-                  </div>
-                </div>
-              );
-            })}
+{/* METAS */}
+{aba === "metas" && (
+  <div style={{ animation: "fadeUp .4s ease", display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(250px,1fr))", gap: 12 }}>
+    {safeMetas.map((m) => {
+      const p = Math.min(100, (m.atual / m.valor) * 100);
+      return (
+        <div key={m.id} style={{ ...crd, borderTop: "3px solid " + (p >= 100 ? C.green : C.navy) }}>
+          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 10 }}>
+            <div>
+              <div style={{ fontWeight: 600, fontSize: 14, color: C.navy }}>{m.nome}</div>
+              <div style={{ fontSize: 11, color: C.grayD }}>{m.prazo}</div>
+            </div>
+            <div style={{ fontSize: 18, fontWeight: 700, color: p >= 100 ? C.green : C.navy }}>
+              {Math.round(p)}%
+            </div>
           </div>
-        )}
+          <Bar pct={p} color={p >= 100 ? C.green : C.navy} />
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: C.grayD, margin: "8px 0 12px" }}>
+            <span>{fmt(m.atual)}</span>
+            <span>Meta: {fmt(m.valor)}</span>
+          </div>
+          <div style={{ display: "flex", gap: 6 }}>
+            <input type="number" min="0" id={"mi-" + m.id} placeholder="Valor" style={{ ...inp, flex: 1 }} />
+            <button onClick={() => {
+              const el = document.getElementById("mi-" + m.id);
+              const v = parseFloat(el.value);
+              if (!isNaN(v) && v > 0) {
+                updMeta(m.id, v);
+                el.value = "";
+              }
+            }} style={btnP}>Aportar</button>
+          </div>
+        </div>
+      );
+    })}
+  </div>
+)}
 
-        {/* IA CONSULTORA */}
-        {aba === "ia" && (
-          <div style={{ animation: "fadeUp .4s ease" }}>
-            <div style={{ ...crd, marginBottom: 12 }}>
-              <div style={{ fontWeight: 600, fontSize: 14, color: C.navy }}>Consultora IA</div>
-              <div style={{ fontSize: 11, color: C.grayD }}>{safeLanc.length} lançamentos</div>
-            </div>
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12 }}>
-              {["Saúde financeira", "Acelerar reserva", "Investir mais?", "Dependência CLT", "Impacto parcelas", "Financiamento?"].map((s) => (
-                <button key={s} onClick={() => setAiQ(s)} style={{ fontSize: 11, padding: "6px 12px", borderRadius: 18, border: "1px solid " + C.border, cursor: "pointer", background: C.white, color: C.navy, fontWeight: 500 }}>
-                  {s}
-                </button>
-              ))}
-            </div>
-            <div style={{ ...crd, marginBottom: 12, display: "flex", gap: 8 }}>
-              <input type="text" placeholder="Pergunte..." value={aiQ} onChange={(e) => setAiQ(e.target.value)} onKeyDown={(e) => e.key === "Enter" && !aiLoad && askAI()} style={{ ...inp, flex: 1, borderRadius: 10, padding: "10px 14px" }} />
-              <button onClick={askAI} disabled={aiLoad || !aiQ.trim()} style={{ ...btnP, borderRadius: 10, padding: "10px 18px" }}>
-                {aiLoad ? <i className="ti ti-loader-2" style={{ animation: "spin 1s linear infinite" }} /> : <i className="ti ti-send" />}
-                {aiLoad ? "..." : "Enviar"}
-              </button>
-            </div>
-            {aiResp && !aiLoad && (
-              <div style={{ ...crd, borderLeft: "4px solid " + C.navy }}>
-                <div style={{ fontSize: 13, fontWeight: 600, color: C.navy, marginBottom: 8 }}>Análise</div>
-                <div style={{ fontSize: 14, lineHeight: 1.8, whiteSpace: "pre-wrap", color: "#334155" }}>{aiResp}</div>
-              </div>
-            )}
-          </div>
-        )}
-      </div>
+{/* IA CONSULTORA */}
+{aba === "ia" && (
+  <div style={{ animation: "fadeUp .4s ease" }}>
+    <div style={{ ...crd, marginBottom: 12 }}>
+      <div style={{ fontWeight: 600, fontSize: 14, color: C.navy }}>Consultora IA</div>
+      <div style={{ fontSize: 11, color: C.grayD }}>{safeLanc.length} lançamentos</div>
     </div>
-  );
-}
+    <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12 }}>
+      {["Saúde financeira", "Acelerar reserva", "Investir mais?", "Dependência CLT", "Impacto parcelas", "Financiamento?"].map((s) => (
+        <button key={s} onClick={() => setAiQ(s)} style={{ 
+          fontSize: 11, 
+          padding: "6px 12px", 
+          borderRadius: 18, 
+          border: "1px solid " + C.border, 
+          cursor: "pointer", 
+          background: C.white, 
+          color: C.navy, 
+          fontWeight: 500 
+        }}>
+          {s}
+        </button>
+      ))}
+    </div>
+    <div style={{ ...crd, marginBottom: 12, display: "flex", gap: 8 }}>
+      <input 
+        type="text" 
+        placeholder="Pergunte..." 
+        value={aiQ} 
+        onChange={(e) => setAiQ(e.target.value)} 
+        onKeyDown={(e) => e.key === "Enter" && !aiLoad && askAI()} 
+        style={{ ...inp, flex: 1, borderRadius: 10, padding: "10px 14px" }} 
+      />
+      <button 
+        onClick={askAI} 
+        disabled={aiLoad || !aiQ.trim()} 
+        style={{ ...btnP, borderRadius: 10, padding: "10px 18px" }}
+      >
+        {aiLoad ? <i className="ti ti-loader-2" style={{ animation: "spin 1s linear infinite" }} /> : <i className="ti ti-send" />}
+        {aiLoad ? "..." : "Enviar"}
+      </button>
+    </div>
+    {aiResp && !aiLoad && (
+      <div style={{ ...crd, borderLeft: "4px solid " + C.navy }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: C.navy, marginBottom: 8 }}>Análise</div>
+        <div style={{ fontSize: 14, lineHeight: 1.8, whiteSpace: "pre-wrap", color: "#334155" }}>{aiResp}</div>
+      </div>
+    )}
+  </div>
+)}
 
 /* ════ LANDING PAGE ════ */
 function Landing({ onEnter }) {
