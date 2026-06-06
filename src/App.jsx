@@ -895,7 +895,7 @@ function Dashboard({ session, onLogout }) {
           </div>
         )}
 
-      {aba === "lancamentos" && (
+    {aba === "lancamentos" && (
   <div style={{ animation: "fadeUp .4s ease" }}>
     <div style={{ ...crd, marginBottom: 14 }}>
       <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 12 }}>
@@ -929,10 +929,16 @@ function Dashboard({ session, onLogout }) {
           <input type="text" placeholder="Ex: Consultoria" value={form.descricao} onChange={(e) => setForm((f) => ({ ...f, descricao: e.target.value }))} style={inp} onKeyDown={(e) => e.key === "Enter" && salvar()} />
         </div>
       </div>
+
+      {/* SEÇÃO DE PARCELAMENTO COM BOTÃO PARA ADICIONAR CARTÃO */}
       <div style={{ marginBottom: 12 }}>
-        <button onClick={() => setShowParcela(!showParcela)} style={{ fontSize: 12, color: C.navy, fontWeight: 500, background: "none", border: "none", cursor: "pointer" }}>
+        <button 
+          onClick={() => setShowParcela(!showParcela)} 
+          style={{ fontSize: 12, color: C.navy, fontWeight: 500, background: "none", border: "none", cursor: "pointer" }}
+        >
           {showParcela ? "▾" : "▸"} Parcelamento
         </button>
+        
         {showParcela && (
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(120px,1fr))", gap: 8, marginTop: 8, padding: 10, background: C.slate, borderRadius: 10, border: "1px solid " + C.border }}>
             <div>
@@ -945,19 +951,47 @@ function Dashboard({ session, onLogout }) {
             </div>
             <div>
               <label style={lab}>Cartão</label>
-              <select value={form.cartao} onChange={(e) => setForm((f) => ({ ...f, cartao: e.target.value }))} style={inp}>
-                <option value="">Selecione</option>
-                {CARTOES.map((c) => <option key={c}>{c}</option>)}
-              </select>
+              <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                <select 
+                  value={form.cartao} 
+                  onChange={(e) => setForm((f) => ({ ...f, cartao: e.target.value }))} 
+                  style={{ ...inp, flex: 1 }}
+                >
+                  <option value="">Selecione</option>
+                  {cartoes.map((c) => <option key={c} value={c}>{c}</option>)}
+                </select>
+                <button
+                  onClick={() => {
+                    let novoCartao = prompt("Digite o nome do novo cartão:", "");
+                    if (novoCartao && novoCartao.trim()) {
+                      novoCartao = novoCartao.trim();
+                      if (!cartoes.includes(novoCartao)) {
+                        setCartoes([...cartoes, novoCartao]);
+                        setForm((f) => ({ ...f, cartao: novoCartao }));
+                        toast(`✅ Cartão "${novoCartao}" adicionado!`);
+                      } else {
+                        toast(`⚠️ Cartão "${novoCartao}" já existe!`);
+                      }
+                    }
+                  }}
+                  style={{ ...btnP, padding: "6px 10px", borderRadius: 8 }}
+                  title="Adicionar novo cartão"
+                >
+                  <i className="ti ti-plus" style={{ fontSize: 12 }} />
+                </button>
+              </div>
             </div>
           </div>
         )}
       </div>
+
       <button onClick={salvar} disabled={saving} style={{ ...btnP, padding: "9px 20px", borderRadius: 10 }}>
         {saving ? <i className="ti ti-loader-2" style={{ animation: "spin 1s linear infinite" }} /> : <i className={"ti " + (editId ? "ti-check" : "ti-device-floppy")} />}
         {editId ? "Atualizar" : "Salvar"}
       </button>
     </div>
+
+    {/* FILTRO E TABELA DE LANÇAMENTOS */}
     <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 10, flexWrap: "wrap" }}>
       <select value={filtro} onChange={(e) => setFiltro(e.target.value)} style={{ ...inp, width: "auto" }}>
         <option value="">Todos ({safeLanc.length})</option>
@@ -966,6 +1000,7 @@ function Dashboard({ session, onLogout }) {
       <span style={{ marginLeft: "auto", fontSize: 11, color: C.green }}>Entr: {fmt(lF.filter((l) => l.tipo === "receita").reduce((s, l) => s + Number(l.valor), 0))}</span>
       <span style={{ fontSize: 11, color: C.red }}>Saíd: {fmt(lF.filter((l) => l.tipo === "despesa").reduce((s, l) => s + Number(l.valor), 0))}</span>
     </div>
+
     <div style={crd}>
       {lF.length === 0 ? (
         <div style={{ textAlign: "center", padding: "2rem", color: C.grayD, fontSize: 13 }}>Nenhum lançamento.</div>
@@ -1014,7 +1049,6 @@ function Dashboard({ session, onLogout }) {
     </div>
   </div>
 )}
-
        {aba === "cartao" && (
   <div style={{ animation: "fadeUp .4s ease" }}>
     <div style={{ ...crd, marginBottom: 14 }}>
