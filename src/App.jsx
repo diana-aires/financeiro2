@@ -1015,7 +1015,7 @@ function Dashboard({ session, onLogout }) {
   </div>
 )}
 
-        {aba === "cartao" && (
+       {aba === "cartao" && (
   <div style={{ animation: "fadeUp .4s ease" }}>
     <div style={{ ...crd, marginBottom: 14 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
@@ -1094,7 +1094,7 @@ function Dashboard({ session, onLogout }) {
                       </td>
                       <td style={{ padding: 8, color: C.red, whiteSpace: "nowrap" }}>{fmt(l.valor)}</td>
                       <td style={{ padding: 8, color: C.grayD, whiteSpace: "nowrap" }}>{fmt(rest)}</td>
-                    </td>
+                    </tr>
                   );
                 })}
               </tbody>
