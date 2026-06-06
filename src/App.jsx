@@ -893,9 +893,77 @@ function Dashboard({ session, onLogout }) {
           </div>
         )}
 
-       {aba === "lancamentos" && (
+      {aba === "lancamentos" && (
   <div style={{ animation: "fadeUp .4s ease" }}>
-    {/* ... resto do código ... */}
+    <div style={{ ...crd, marginBottom: 14 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 12 }}>
+        <span style={{ fontWeight: 600, fontSize: 13, color: C.navy }}>{editId ? "Editando" : "Novo lançamento"}</span>
+        {editId && <button onClick={cancelEdit} style={{ fontSize: 12, color: C.red, background: "none", border: "none", cursor: "pointer" }}>Cancelar</button>}
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(130px,1fr))", gap: 8, marginBottom: 10 }}>
+        <div>
+          <label style={lab}>Tipo</label>
+          <select value={form.tipo} onChange={(e) => setForm((f) => ({ ...f, tipo: e.target.value, cat: e.target.value === "receita" ? catsRList[0] : catsDList[0] }))} style={inp}>
+            <option value="receita">Receita</option>
+            <option value="despesa">Despesa</option>
+          </select>
+        </div>
+        <div>
+          <label style={lab}>Categoria</label>
+          <select value={form.cat} onChange={(e) => setForm((f) => ({ ...f, cat: e.target.value }))} style={inp}>
+            {(form.tipo === "receita" ? catsRList : catsDList).map((c) => <option key={c}>{c}</option>)}
+          </select>
+        </div>
+        <div>
+          <label style={lab}>Data</label>
+          <input type="date" value={form.data} onChange={(e) => setForm((f) => ({ ...f, data: e.target.value }))} style={inp} />
+        </div>
+        <div>
+          <label style={lab}>Valor</label>
+          <input type="number" min="0" step="0.01" value={form.valor} onChange={(e) => setForm((f) => ({ ...f, valor: e.target.value }))} style={inp} />
+        </div>
+        <div style={{ gridColumn: "1 / -1" }}>
+          <label style={lab}>Descrição</label>
+          <input type="text" placeholder="Ex: Consultoria" value={form.descricao} onChange={(e) => setForm((f) => ({ ...f, descricao: e.target.value }))} style={inp} onKeyDown={(e) => e.key === "Enter" && salvar()} />
+        </div>
+      </div>
+      <div style={{ marginBottom: 12 }}>
+        <button onClick={() => setShowParcela(!showParcela)} style={{ fontSize: 12, color: C.navy, fontWeight: 500, background: "none", border: "none", cursor: "pointer" }}>
+          {showParcela ? "▾" : "▸"} Parcelamento
+        </button>
+        {showParcela && (
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(120px,1fr))", gap: 8, marginTop: 8, padding: 10, background: C.slate, borderRadius: 10, border: "1px solid " + C.border }}>
+            <div>
+              <label style={lab}>Parcelas</label>
+              <input type="number" min="1" value={form.parcelas} onChange={(e) => setForm((f) => ({ ...f, parcelas: e.target.value }))} style={inp} />
+            </div>
+            <div>
+              <label style={lab}>Atual</label>
+              <input type="number" min="1" value={form.parcela_atual} onChange={(e) => setForm((f) => ({ ...f, parcela_atual: e.target.value }))} style={inp} />
+            </div>
+            <div>
+              <label style={lab}>Cartão</label>
+              <select value={form.cartao} onChange={(e) => setForm((f) => ({ ...f, cartao: e.target.value }))} style={inp}>
+                <option value="">Selecione</option>
+                {CARTOES.map((c) => <option key={c}>{c}</option>)}
+              </select>
+            </div>
+          </div>
+        )}
+      </div>
+      <button onClick={salvar} disabled={saving} style={{ ...btnP, padding: "9px 20px", borderRadius: 10 }}>
+        {saving ? <i className="ti ti-loader-2" style={{ animation: "spin 1s linear infinite" }} /> : <i className={"ti " + (editId ? "ti-check" : "ti-device-floppy")} />}
+        {editId ? "Atualizar" : "Salvar"}
+      </button>
+    </div>
+    <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 10, flexWrap: "wrap" }}>
+      <select value={filtro} onChange={(e) => setFiltro(e.target.value)} style={{ ...inp, width: "auto" }}>
+        <option value="">Todos ({safeLanc.length})</option>
+        {meses.map((m) => <option key={m} value={m}>{m}</option>)}
+      </select>
+      <span style={{ marginLeft: "auto", fontSize: 11, color: C.green }}>Entr: {fmt(lF.filter((l) => l.tipo === "receita").reduce((s, l) => s + Number(l.valor), 0))}</span>
+      <span style={{ fontSize: 11, color: C.red }}>Saíd: {fmt(lF.filter((l) => l.tipo === "despesa").reduce((s, l) => s + Number(l.valor), 0))}</span>
+    </div>
     <div style={crd}>
       {lF.length === 0 ? (
         <div style={{ textAlign: "center", padding: "2rem", color: C.grayD, fontSize: 13 }}>Nenhum lançamento.</div>
@@ -935,7 +1003,7 @@ function Dashboard({ session, onLogout }) {
               <tr style={{ borderTop: "2px solid " + C.border }}>
                 <td colSpan={4} style={{ padding: 8, fontWeight: 600 }}>Saldo</td>
                 <td style={{ padding: 8, fontWeight: 700, textAlign: "right", color: sP >= 0 ? C.green : C.red }}>{fmt(sP)}</td>
-                <td />
+                <td></td>
               </tr>
             </tfoot>
           </table>
