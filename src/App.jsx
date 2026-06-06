@@ -16,7 +16,6 @@ async function safeFetch(url, opts) {
     const r = await fetch(url, opts);
     const ct = r.headers.get("content-type") || "";
     
-    // Se não for JSON, retorna um response fake com array vazio
     if (!ct.includes("application/json")) {
       const raw = await r.text();
       console.warn("⚠️ Resposta não-JSON:", url, r.status, raw.slice(0, 200));
@@ -68,7 +67,6 @@ async function sb(path, opts = {}) {
     });
     const txt = await r.text();
     
-    // 🔥 TRATAMENTO RADICAL - SEMPRE RETORNAR ARRAY
     if (!txt || txt.trim() === '' || txt === 'null' || txt === 'undefined') {
       console.warn('📭 Resposta vazia ou nula da API:', path);
       return [];
@@ -79,23 +77,12 @@ async function sb(path, opts = {}) {
       result = JSON.parse(txt);
     } catch (e) {
       console.error('❌ Erro ao fazer parse do JSON:', e);
-      console.log('📄 Texto recebido:', txt.substring(0, 500));
       return [];
     }
     
-    // GARANTIR QUE SEMPRE É ARRAY
-    if (result === null || result === undefined) {
-      return [];
-    }
-    
-    if (Array.isArray(result)) {
-      return result;
-    }
-    
-    if (typeof result === 'object') {
-      // Se for objeto único, converte para array
-      return [result];
-    }
+    if (result === null || result === undefined) return [];
+    if (Array.isArray(result)) return result;
+    if (typeof result === 'object') return [result];
     
     return [];
     
@@ -252,7 +239,6 @@ function Dashboard({ session, onLogout }) {
 
   function toast(m) { setToastMsg(m); setTimeout(() => setToastMsg(""), 3000); }
 
-  // 🔥 PROTEÇÃO RADICAL - FORÇA ARRAY EM QUALQUER SITUAÇÃO
   const safeLanc = useMemo(() => {
     if (!lanc) return [];
     if (!Array.isArray(lanc)) {
@@ -271,7 +257,6 @@ function Dashboard({ session, onLogout }) {
     return metas;
   }, [metas]);
 
-  // Carregar dados com validação extrema
   useEffect(() => {
     if (!token) return;
     setLoading(true);
@@ -280,12 +265,10 @@ function Dashboard({ session, onLogout }) {
       sb("/lancamentos?order=data.desc", { token }),
       sb("/metas?order=id.asc", { token }),
     ]).then(([ls, ms]) => {
-      // 🔍 DIAGNÓSTICO DETALHADO
       console.log('📊 Dados recebidos do Supabase:');
       console.log('- Lancamentos tipo:', typeof ls, 'é array?', Array.isArray(ls));
       console.log('- Metas tipo:', typeof ms, 'é array?', Array.isArray(ms));
       
-      // 🔧 FORÇAR CORREÇÃO RADICAL
       let lancamentosArray = [];
       let metasArray = [];
       
@@ -293,16 +276,12 @@ function Dashboard({ session, onLogout }) {
         lancamentosArray = ls;
       } else if (ls && typeof ls === 'object') {
         lancamentosArray = [ls];
-      } else {
-        lancamentosArray = [];
       }
       
       if (Array.isArray(ms)) {
         metasArray = ms;
       } else if (ms && typeof ms === 'object') {
         metasArray = [ms];
-      } else {
-        metasArray = [];
       }
       
       console.log('✅ Após correção - Lancamentos:', lancamentosArray.length, 'Metas:', metasArray.length);
@@ -320,7 +299,6 @@ function Dashboard({ session, onLogout }) {
               newMetas = [d];
             }
             setMetas(newMetas);
-            console.log('✅ Metas criadas:', newMetas.length);
           })
           .catch(err => console.error('❌ Erro criar metas:', err));
       } else {
@@ -334,7 +312,6 @@ function Dashboard({ session, onLogout }) {
     }).finally(() => setLoading(false));
   }, [token, uid]);
 
-  // Cálculos usando safeLanc (garantidamente array)
   const rec = safeLanc.filter((l) => l?.tipo === "receita");
   const desp = safeLanc.filter((l) => l?.tipo === "despesa");
   const tR = rec.reduce((s, l) => s + Number(l?.valor || 0), 0);
@@ -546,7 +523,12 @@ function Dashboard({ session, onLogout }) {
             <span style={{ fontWeight: 700, fontSize: 14, color: C.navy }}>FinancePro</span>
           </div>
           <div style={{ display: "flex", gap: 1, flex: 1, justifyContent: "center", flexWrap: "wrap" }}>
-            {abas.map((a) => (<button key={a.id} onClick={() => setAba(a.id)} style={{ fontSize: 11, padding: "5px 10px", borderRadius: 7, border: "none", cursor: "pointer", fontWeight: aba === a.id ? 600 : 400, background: aba === a.id ? C.navy + "12" : "transparent", color: aba === a.id ? C.navy : C.grayD, display: "flex", alignItems: "center", gap: 4 }}><i className={"ti " + a.icon} style={{ fontSize: 12 }} />{a.label}</button>))}
+            {abas.map((a) => (
+              <button key={a.id} onClick={() => setAba(a.id)} style={{ fontSize: 11, padding: "5px 10px", borderRadius: 7, border: "none", cursor: "pointer", fontWeight: aba === a.id ? 600 : 400, background: aba === a.id ? C.navy + "12" : "transparent", color: aba === a.id ? C.navy : C.grayD, display: "flex", alignItems: "center", gap: 4 }}>
+                <i className={"ti " + a.icon} style={{ fontSize: 12 }} />
+                {a.label}
+              </button>
+            ))}
           </div>
           <span style={{ fontSize: 11, color: C.grayD }}>{session?.user?.email}</span>
           <button onClick={onLogout} style={{ background: "none", border: "1px solid " + C.border, borderRadius: 6, padding: "4px 8px", cursor: "pointer", fontSize: 10, color: C.grayD }}>Sair</button>
@@ -556,23 +538,51 @@ function Dashboard({ session, onLogout }) {
         {aba === "dashboard" && (
           <div style={{ animation: "fadeUp .4s ease" }}>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(140px,1fr))", gap: 10, marginBottom: 14 }}>
-              {[{ l: "Receita", v: fmt(tR), c: C.green, ic: "ti-trending-up" }, { l: "Despesas", v: fmt(tD), c: C.red, ic: "ti-trending-down" }, { l: "Saldo", v: fmt(saldo), c: saldo >= 0 ? C.navy : C.red, ic: "ti-wallet" }, { l: "Investido", v: fmt(inv), c: C.purple, ic: "ti-building-bank" }, { l: "Financiamento", v: fmt(fin), c: C.amber, ic: "ti-car" }].map((k) => (
-                <div key={k.l} style={{ ...crd, borderTop: "3px solid " + k.c, padding: "1rem" }}><div style={{ fontSize: 10, fontWeight: 600, color: C.grayD, textTransform: "uppercase", marginBottom: 6 }}>{k.l}</div><div style={{ fontSize: 18, fontWeight: 700, color: k.c }}>{k.v}</div></div>
+              {[{ l: "Receita", v: fmt(tR), c: C.green }, { l: "Despesas", v: fmt(tD), c: C.red }, { l: "Saldo", v: fmt(saldo), c: saldo >= 0 ? C.navy : C.red }, { l: "Investido", v: fmt(inv), c: C.purple }, { l: "Financiamento", v: fmt(fin), c: C.amber }].map((k) => (
+                <div key={k.l} style={{ ...crd, borderTop: "3px solid " + k.c, padding: "1rem" }}>
+                  <div style={{ fontSize: 10, fontWeight: 600, color: C.grayD, textTransform: "uppercase", marginBottom: 6 }}>{k.l}</div>
+                  <div style={{ fontSize: 18, fontWeight: 700, color: k.c }}>{k.v}</div>
+                </div>
               ))}
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(260px,1fr))", gap: 10, marginBottom: 14 }}>
-              <div style={crd}><div style={{ fontWeight: 600, fontSize: 13, color: C.navy, marginBottom: 12 }}>Receita</div>
-                {[["CLT", rF, C.navy], ["Variável", rV, C.green]].map(([l, v, c]) => (<div key={l} style={{ marginBottom: 10 }}><div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 4 }}><span style={{ color: C.grayD }}>{l}</span><span style={{ fontWeight: 600, color: c }}>{tR > 0 ? ((v / tR) * 100).toFixed(1) : 0}%</span></div><Bar pct={tR > 0 ? (v / tR) * 100 : 0} color={c} /></div>))}
+              <div style={crd}>
+                <div style={{ fontWeight: 600, fontSize: 13, color: C.navy, marginBottom: 12 }}>Receita</div>
+                {[["CLT", rF, C.navy], ["Variável", rV, C.green]].map(([l, v, c]) => (
+                  <div key={l} style={{ marginBottom: 10 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 4 }}>
+                      <span style={{ color: C.grayD }}>{l}</span>
+                      <span style={{ fontWeight: 600, color: c }}>{tR > 0 ? ((v / tR) * 100).toFixed(1) : 0}%</span>
+                    </div>
+                    <Bar pct={tR > 0 ? (v / tR) * 100 : 0} color={c} />
+                  </div>
+                ))}
               </div>
-              <div style={crd}><div style={{ fontWeight: 600, fontSize: 13, color: C.navy, marginBottom: 12 }}>Indicadores</div>
-                {[{ l: "Poupança", v: fmtPct(txP), ok: txP >= .2 }, { l: "Investimento", v: fmtPct(txI), ok: txI >= .1 }, { l: "Fixas", v: fmtPct(cFx), ok: cFx <= .5 }, { l: "CLT", v: fmtPct(dC), ok: dC <= .7 }].map((k) => (<div key={k.l} style={{ display: "flex", alignItems: "center", padding: "5px 0", borderBottom: "1px solid " + C.border }}><span style={{ flex: 1, fontSize: 12, color: C.grayD }}>{k.l}</span><span style={{ fontSize: 12, fontWeight: 600, color: k.ok ? C.green : C.amber }}>{k.v}</span></div>))}
+              <div style={crd}>
+                <div style={{ fontWeight: 600, fontSize: 13, color: C.navy, marginBottom: 12 }}>Indicadores</div>
+                {[{ l: "Poupança", v: fmtPct(txP), ok: txP >= .2 }, { l: "Investimento", v: fmtPct(txI), ok: txI >= .1 }, { l: "Fixas", v: fmtPct(cFx), ok: cFx <= .5 }, { l: "CLT", v: fmtPct(dC), ok: dC <= .7 }].map((k) => (
+                  <div key={k.l} style={{ display: "flex", alignItems: "center", padding: "5px 0", borderBottom: "1px solid " + C.border }}>
+                    <span style={{ flex: 1, fontSize: 12, color: C.grayD }}>{k.l}</span>
+                    <span style={{ fontSize: 12, fontWeight: 600, color: k.ok ? C.green : C.amber }}>{k.v}</span>
+                  </div>
+                ))}
               </div>
             </div>
-            <div style={crd}><div style={{ fontWeight: 600, fontSize: 13, color: C.navy, marginBottom: 12 }}>Metas</div>
+            <div style={crd}>
+              <div style={{ fontWeight: 600, fontSize: 13, color: C.navy, marginBottom: 12 }}>Metas</div>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))", gap: 10 }}>
-                {safeMetas.map((m) => { 
-                  const p = Math.min(100, (m.atual / m.valor) * 100); 
-                  return (<div key={m.id} style={{ background: C.slate, borderRadius: 10, padding: 10, border: "1px solid " + C.border }}><div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}><span style={{ fontSize: 11, fontWeight: 600, color: C.navy }}>{m.nome}</span><span style={{ fontSize: 11, fontWeight: 700, color: p >= 100 ? C.green : C.navy }}>{Math.round(p)}%</span></div><Bar pct={p} color={p >= 100 ? C.green : C.navy} /><div style={{ fontSize: 10, color: C.grayD, marginTop: 4 }}>{fmt(m.atual)} / {fmt(m.valor)}</div></div>); 
+                {safeMetas.map((m) => {
+                  const p = Math.min(100, (m.atual / m.valor) * 100);
+                  return (
+                    <div key={m.id} style={{ background: C.slate, borderRadius: 10, padding: 10, border: "1px solid " + C.border }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
+                        <span style={{ fontSize: 11, fontWeight: 600, color: C.navy }}>{m.nome}</span>
+                        <span style={{ fontSize: 11, fontWeight: 700, color: p >= 100 ? C.green : C.navy }}>{Math.round(p)}%</span>
+                      </div>
+                      <Bar pct={p} color={p >= 100 ? C.green : C.navy} />
+                      <div style={{ fontSize: 10, color: C.grayD, marginTop: 4 }}>{fmt(m.atual)} / {fmt(m.valor)}</div>
+                    </div>
+                  );
                 })}
               </div>
             </div>
@@ -582,18 +592,65 @@ function Dashboard({ session, onLogout }) {
         {aba === "lancamentos" && (
           <div style={{ animation: "fadeUp .4s ease" }}>
             <div style={{ ...crd, marginBottom: 14 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 12 }}><span style={{ fontWeight: 600, fontSize: 13, color: C.navy }}>{editId ? "Editando" : "Novo lançamento"}</span>{editId && <button onClick={cancelEdit} style={{ fontSize: 12, color: C.red, background: "none", border: "none", cursor: "pointer" }}>Cancelar</button>}</div>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 12 }}>
+                <span style={{ fontWeight: 600, fontSize: 13, color: C.navy }}>{editId ? "Editando" : "Novo lançamento"}</span>
+                {editId && <button onClick={cancelEdit} style={{ fontSize: 12, color: C.red, background: "none", border: "none", cursor: "pointer" }}>Cancelar</button>}
+              </div>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(130px,1fr))", gap: 8, marginBottom: 10 }}>
-                <div><label style={lab}>Tipo</label><select value={form.tipo} onChange={(e) => setForm((f) => ({ ...f, tipo: e.target.value, cat: e.target.value === "receita" ? CATS_R[0] : CATS_D[0] }))} style={inp}><option value="receita">Receita</option><option value="despesa">Despesa</option></select></div>
-                <div><label style={lab}>Categoria</label><select value={form.cat} onChange={(e) => setForm((f) => ({ ...f, cat: e.target.value }))} style={inp}>{(form.tipo === "receita" ? CATS_R : CATS_D).map((c) => <option key={c}>{c}</option>)}</select></div>
-                <div><label style={lab}>Data</label><input type="date" value={form.data} onChange={(e) => setForm((f) => ({ ...f, data: e.target.value }))} style={inp} /></div>
-                <div><label style={lab}>Valor</label><input type="number" min="0" step="0.01" value={form.valor} onChange={(e) => setForm((f) => ({ ...f, valor: e.target.value }))} style={inp} /></div>
-                <div style={{ gridColumn: "1 / -1" }}><label style={lab}>Descrição</label><input type="text" placeholder="Ex: Consultoria" value={form.descricao} onChange={(e) => setForm((f) => ({ ...f, descricao: e.target.value }))} style={inp} onKeyDown={(e) => e.key === "Enter" && salvar()} /></div>
+                <div>
+                  <label style={lab}>Tipo</label>
+                  <select value={form.tipo} onChange={(e) => setForm((f) => ({ ...f, tipo: e.target.value, cat: e.target.value === "receita" ? CATS_R[0] : CATS_D[0] }))} style={inp}>
+                    <option value="receita">Receita</option>
+                    <option value="despesa">Despesa</option>
+                  </select>
+                </div>
+                <div>
+                  <label style={lab}>Categoria</label>
+                  <select value={form.cat} onChange={(e) => setForm((f) => ({ ...f, cat: e.target.value }))} style={inp}>
+                    {(form.tipo === "receita" ? CATS_R : CATS_D).map((c) => <option key={c}>{c}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label style={lab}>Data</label>
+                  <input type="date" value={form.data} onChange={(e) => setForm((f) => ({ ...f, data: e.target.value }))} style={inp} />
+                </div>
+                <div>
+                  <label style={lab}>Valor</label>
+                  <input type="number" min="0" step="0.01" value={form.valor} onChange={(e) => setForm((f) => ({ ...f, valor: e.target.value }))} style={inp} />
+                </div>
+                <div style={{ gridColumn: "1 / -1" }}>
+                  <label style={lab}>Descrição</label>
+                  <input type="text" placeholder="Ex: Consultoria" value={form.descricao} onChange={(e) => setForm((f) => ({ ...f, descricao: e.target.value }))} style={inp} onKeyDown={(e) => e.key === "Enter" && salvar()} />
+                </div>
               </div>
-              <div style={{ marginBottom: 12 }}><button onClick={() => setShowParcela(!showParcela)} style={{ fontSize: 12, color: C.navy, fontWeight: 500, background: "none", border: "none", cursor: "pointer" }}>{showParcela ? "▾" : "▸"} Parcelamento</button>
-                {showParcela && <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(120px,1fr))", gap: 8, marginTop: 8, padding: 10, background: C.slate, borderRadius: 10, border: "1px solid " + C.border }}><div><label style={lab}>Parcelas</label><input type="number" min="1" value={form.parcelas} onChange={(e) => setForm((f) => ({ ...f, parcelas: e.target.value }))} style={inp} /></div><div><label style={lab}>Atual</label><input type="number" min="1" value={form.parcela_atual} onChange={(e) => setForm((f) => ({ ...f, parcela_atual: e.target.value }))} style={inp} /></div><div><label style={lab}>Cartão</label><select value={form.cartao} onChange={(e) => setForm((f) => ({ ...f, cartao: e.target.value }))} style={inp}><option value="">Selecione</option>{CARTOES.map((c) => <option key={c}>{c}</option>)}</select></div></div>}
+              <div style={{ marginBottom: 12 }}>
+                <button onClick={() => setShowParcela(!showParcela)} style={{ fontSize: 12, color: C.navy, fontWeight: 500, background: "none", border: "none", cursor: "pointer" }}>
+                  {showParcela ? "▾" : "▸"} Parcelamento
+                </button>
+                {showParcela && (
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(120px,1fr))", gap: 8, marginTop: 8, padding: 10, background: C.slate, borderRadius: 10, border: "1px solid " + C.border }}>
+                    <div>
+                      <label style={lab}>Parcelas</label>
+                      <input type="number" min="1" value={form.parcelas} onChange={(e) => setForm((f) => ({ ...f, parcelas: e.target.value }))} style={inp} />
+                    </div>
+                    <div>
+                      <label style={lab}>Atual</label>
+                      <input type="number" min="1" value={form.parcela_atual} onChange={(e) => setForm((f) => ({ ...f, parcela_atual: e.target.value }))} style={inp} />
+                    </div>
+                    <div>
+                      <label style={lab}>Cartão</label>
+                      <select value={form.cartao} onChange={(e) => setForm((f) => ({ ...f, cartao: e.target.value }))} style={inp}>
+                        <option value="">Selecione</option>
+                        {CARTOES.map((c) => <option key={c}>{c}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                )}
               </div>
-              <button onClick={salvar} disabled={saving} style={{ ...btnP, padding: "9px 20px", borderRadius: 10 }}>{saving ? <i className="ti ti-loader-2" style={{ animation: "spin 1s linear infinite" }} /> : <i className={"ti " + (editId ? "ti-check" : "ti-device-floppy")} />}{editId ? "Atualizar" : "Salvar"}</button>
+              <button onClick={salvar} disabled={saving} style={{ ...btnP, padding: "9px 20px", borderRadius: 10 }}>
+                {saving ? <i className="ti ti-loader-2" style={{ animation: "spin 1s linear infinite" }} /> : <i className={"ti " + (editId ? "ti-check" : "ti-device-floppy")} />}
+                {editId ? "Atualizar" : "Salvar"}
+              </button>
             </div>
             <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 10, flexWrap: "wrap" }}>
               <select value={filtro} onChange={(e) => setFiltro(e.target.value)} style={{ ...inp, width: "auto" }}>
@@ -604,77 +661,165 @@ function Dashboard({ session, onLogout }) {
               <span style={{ fontSize: 11, color: C.red }}>Saíd: {fmt(lF.filter((l) => l.tipo === "despesa").reduce((s, l) => s + Number(l.valor), 0))}</span>
             </div>
             <div style={crd}>
-              {lF.length === 0 ? <div style={{ textAlign: "center", padding: "2rem", color: C.grayD, fontSize: 13 }}>Nenhum lançamento.</div> : 
-              <div style={{ overflowX: "auto" }}>
-                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
-                  <thead>
-                    <tr style={{ borderBottom: "2px solid " + C.border }}>
-                      {["Data", "Descrição", "Categoria", "Parcela", "Valor", "Ações"].map((h) => <th key={h} style={{ textAlign: "left", padding: "7px 8px", fontWeight: 600, color: C.grayD }}>{h}</th>)}
-                    </table>
-                  </thead>
-                  <tbody>
-                    {lF.map((l) => (
-                      <tr key={l.id} className="row-hover" style={{ borderBottom: "1px solid " + C.border }}>
-                        <td style={{ padding: 8, color: C.grayD }}>{l.data?.split("-").reverse().join("/")}</td>
-                        <td style={{ padding: 8, fontWeight: 500 }}>{l.descricao}</td>
-                        <td style={{ padding: 8 }}><span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 99, background: l.tipo === "receita" ? "#ECFDF5" : "#FEF2F2", color: l.tipo === "receita" ? C.greenD : C.red }}>{l.cat}</span></td>
-                        <td style={{ padding: 8, fontSize: 10, color: C.grayD }}>{l.parcelas ? (l.parcela_atual || 1) + "/" + l.parcelas : "—"}</td>
-                        <td style={{ padding: 8, fontWeight: 700, color: l.tipo === "receita" ? C.green : C.red, textAlign: "right" }}>{l.tipo === "despesa" ? "-" : ""}{fmt(l.valor)}</td>
-                        <td style={{ padding: 8 }}>
-                          <button onClick={() => startEdit(l)} style={btnI}><i className="ti ti-edit" style={{ fontSize: 13, color: C.navy }} /></button>
-                          <button onClick={() => duplicar(l)} style={btnI}><i className="ti ti-copy" style={{ fontSize: 13, color: C.purple }} /></button>
-                          <button onClick={() => del(l.id)} style={btnI}><i className="ti ti-trash" style={{ fontSize: 13, color: C.red }} /></button>
-                        </td>
+              {lF.length === 0 ? (
+                <div style={{ textAlign: "center", padding: "2rem", color: C.grayD, fontSize: 13 }}>Nenhum lançamento.</div>
+              ) : (
+                <div style={{ overflowX: "auto" }}>
+                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+                    <thead>
+                      <tr style={{ borderBottom: "2px solid " + C.border }}>
+                        {["Data", "Descrição", "Categoria", "Parcela", "Valor", "Ações"].map((h) => <th key={h} style={{ textAlign: "left", padding: "7px 8px", fontWeight: 600, color: C.grayD }}>{h}</th>)}
                       </tr>
-                    ))}
-                  </tbody>
-                  <tfoot>
-                    <tr style={{ borderTop: "2px solid " + C.border }}>
-                      <td colSpan={4} style={{ padding: 8, fontWeight: 600 }}>Saldo</td>
-                      <td style={{ padding: 8, fontWeight: 700, textAlign: "right", color: sP >= 0 ? C.green : C.red }}>{fmt(sP)}</td>
-                      <td />
-                    <tr>
-                  </tfoot>
-                </table>
-              </div>}
+                    </thead>
+                    <tbody>
+                      {lF.map((l) => (
+                        <tr key={l.id} className="row-hover" style={{ borderBottom: "1px solid " + C.border }}>
+                          <td style={{ padding: 8, color: C.grayD }}>{l.data?.split("-").reverse().join("/")}</td>
+                          <td style={{ padding: 8, fontWeight: 500 }}>{l.descricao}</td>
+                          <td style={{ padding: 8 }}>
+                            <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 99, background: l.tipo === "receita" ? "#ECFDF5" : "#FEF2F2", color: l.tipo === "receita" ? C.greenD : C.red }}>
+                              {l.cat}
+                            </span>
+                          </td>
+                          <td style={{ padding: 8, fontSize: 10, color: C.grayD }}>{l.parcelas ? (l.parcela_atual || 1) + "/" + l.parcelas : "—"}</td>
+                          <td style={{ padding: 8, fontWeight: 700, color: l.tipo === "receita" ? C.green : C.red, textAlign: "right" }}>
+                            {l.tipo === "despesa" ? "-" : ""}{fmt(l.valor)}
+                          </td>
+                          <td style={{ padding: 8 }}>
+                            <button onClick={() => startEdit(l)} style={btnI}><i className="ti ti-edit" style={{ fontSize: 13, color: C.navy }} /></button>
+                            <button onClick={() => duplicar(l)} style={btnI}><i className="ti ti-copy" style={{ fontSize: 13, color: C.purple }} /></button>
+                            <button onClick={() => del(l.id)} style={btnI}><i className="ti ti-trash" style={{ fontSize: 13, color: C.red }} /></button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr style={{ borderTop: "2px solid " + C.border }}>
+                        <td colSpan={4} style={{ padding: 8, fontWeight: 600 }}>Saldo</td>
+                        <td style={{ padding: 8, fontWeight: 700, textAlign: "right", color: sP >= 0 ? C.green : C.red }}>{fmt(sP)}</td>
+                        <td />
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              )}
             </div>
           </div>
         )}
 
         {aba === "cartao" && (
           <div style={{ animation: "fadeUp .4s ease" }}>
-            <div style={{ ...crd, marginBottom: 14 }}><div style={{ fontWeight: 600, fontSize: 14, color: C.navy }}>Parcelas no cartão</div><div style={{ fontSize: 12, color: C.grayD }}>{parcelados.length} parcela(s) · Mensal: {fmt(parcelados.reduce((s, l) => s + Number(l.valor), 0))}</div></div>
-            {parcelados.length === 0 ? <div style={{ ...crd, textAlign: "center", padding: "2rem", color: C.grayD, fontSize: 13 }}>Nenhuma parcela.</div> : Object.entries(porCartao).map(([cartao, items]) => (
-              <div key={cartao} style={{ ...crd, marginBottom: 12 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}><div><div style={{ fontWeight: 600, fontSize: 13, color: C.navy }}>{cartao}</div><div style={{ fontSize: 11, color: C.grayD }}>{items.length} item(ns)</div></div><div style={{ fontSize: 14, fontWeight: 700, color: C.navy }}>{fmt(items.reduce((s, l) => s + Number(l.valor), 0))}/mês</div></div>
-                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}><thead><tr style={{ borderBottom: "2px solid " + C.border }}>{["Descrição", "Parcela", "Progresso", "Valor", "Restante"].map((h) => <th key={h} style={{ textAlign: "left", padding: "6px 8px", fontWeight: 600, color: C.grayD }}>{h}</th>)}</thead><tbody>{items.map((l) => { const pa = l.parcela_atual || 1, pt = l.parcelas, pct = (pa / pt) * 100, rest = (pt - pa) * Number(l.valor); return <tr key={l.id} style={{ borderBottom: "1px solid " + C.border }}><td style={{ padding: 8, fontWeight: 500 }}>{l.descricao}</td><td style={{ padding: 8, color: C.grayD }}>{pa}/{pt}</td><td style={{ padding: 8, minWidth: 80 }}><Bar pct={pct} color={pct >= 100 ? C.green : C.purple} /></td><td style={{ padding: 8, color: C.red }}>{fmt(l.valor)}</td><td style={{ padding: 8, color: C.grayD }}>{fmt(rest)}</td></tr>; })}</tbody>一顿
+            <div style={{ ...crd, marginBottom: 14 }}>
+              <div style={{ fontWeight: 600, fontSize: 14, color: C.navy }}>Parcelas no cartão</div>
+              <div style={{ fontSize: 12, color: C.grayD }}>
+                {parcelados.length} parcela(s) · Mensal: {fmt(parcelados.reduce((s, l) => s + Number(l.valor), 0))}
               </div>
-            ))}
+            </div>
+            {parcelados.length === 0 ? (
+              <div style={{ ...crd, textAlign: "center", padding: "2rem", color: C.grayD, fontSize: 13 }}>Nenhuma parcela.</div>
+            ) : (
+              Object.entries(porCartao).map(([cartao, items]) => (
+                <div key={cartao} style={{ ...crd, marginBottom: 12 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+                    <div>
+                      <div style={{ fontWeight: 600, fontSize: 13, color: C.navy }}>{cartao}</div>
+                      <div style={{ fontSize: 11, color: C.grayD }}>{items.length} item(ns)</div>
+                    </div>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: C.navy }}>
+                      {fmt(items.reduce((s, l) => s + Number(l.valor), 0))}/mês
+                    </div>
+                  </div>
+                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                    <thead>
+                      <tr style={{ borderBottom: "2px solid " + C.border }}>
+                        {["Descrição", "Parcela", "Progresso", "Valor", "Restante"].map((h) => <th key={h} style={{ textAlign: "left", padding: "6px 8px", fontWeight: 600, color: C.grayD }}>{h}</th>)}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {items.map((l) => {
+                        const pa = l.parcela_atual || 1;
+                        const pt = l.parcelas;
+                        const pct = (pa / pt) * 100;
+                        const rest = (pt - pa) * Number(l.valor);
+                        return (
+                          <tr key={l.id} style={{ borderBottom: "1px solid " + C.border }}>
+                            <td style={{ padding: 8, fontWeight: 500 }}>{l.descricao}</td>
+                            <td style={{ padding: 8, color: C.grayD }}>{pa}/{pt}</td>
+                            <td style={{ padding: 8, minWidth: 80 }}><Bar pct={pct} color={pct >= 100 ? C.green : C.purple} /></td>
+                            <td style={{ padding: 8, color: C.red }}>{fmt(l.valor)}</td>
+                            <td style={{ padding: 8, color: C.grayD }}>{fmt(rest)}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              ))
+            )}
           </div>
         )}
 
         {aba === "metas" && (
           <div style={{ animation: "fadeUp .4s ease", display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(250px,1fr))", gap: 12 }}>
-            {safeMetas.map((m) => { 
-              const p = Math.min(100, (m.atual / m.valor) * 100); 
+            {safeMetas.map((m) => {
+              const p = Math.min(100, (m.atual / m.valor) * 100);
               return (
                 <div key={m.id} style={{ ...crd, borderTop: "3px solid " + (p >= 100 ? C.green : C.navy) }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 10 }}><div><div style={{ fontWeight: 600, fontSize: 14, color: C.navy }}>{m.nome}</div><div style={{ fontSize: 11, color: C.grayD }}>{m.prazo}</div></div><div style={{ fontSize: 18, fontWeight: 700, color: p >= 100 ? C.green : C.navy }}>{Math.round(p)}%</div></div>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 10 }}>
+                    <div>
+                      <div style={{ fontWeight: 600, fontSize: 14, color: C.navy }}>{m.nome}</div>
+                      <div style={{ fontSize: 11, color: C.grayD }}>{m.prazo}</div>
+                    </div>
+                    <div style={{ fontSize: 18, fontWeight: 700, color: p >= 100 ? C.green : C.navy }}>{Math.round(p)}%</div>
+                  </div>
                   <Bar pct={p} color={p >= 100 ? C.green : C.navy} />
-                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: C.grayD, margin: "8px 0 12px" }}><span>{fmt(m.atual)}</span><span>Meta: {fmt(m.valor)}</span></div>
-                  <div style={{ display: "flex", gap: 6 }}><input type="number" min="0" id={"mi-" + m.id} placeholder="Valor" style={{ ...inp, flex: 1 }} /><button onClick={() => { const el = document.getElementById("mi-" + m.id); const v = parseFloat(el.value); if (!isNaN(v) && v > 0) { updMeta(m.id, v); el.value = ""; } }} style={btnP}>Aportar</button></div>
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: C.grayD, margin: "8px 0 12px" }}>
+                    <span>{fmt(m.atual)}</span>
+                    <span>Meta: {fmt(m.valor)}</span>
+                  </div>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <input type="number" min="0" id={"mi-" + m.id} placeholder="Valor" style={{ ...inp, flex: 1 }} />
+                    <button onClick={() => {
+                      const el = document.getElementById("mi-" + m.id);
+                      const v = parseFloat(el.value);
+                      if (!isNaN(v) && v > 0) {
+                        updMeta(m.id, v);
+                        el.value = "";
+                      }
+                    }} style={btnP}>Aportar</button>
+                  </div>
                 </div>
-              ); 
+              );
             })}
           </div>
         )}
 
         {aba === "ia" && (
           <div style={{ animation: "fadeUp .4s ease" }}>
-            <div style={{ ...crd, marginBottom: 12 }}><div style={{ fontWeight: 600, fontSize: 14, color: C.navy }}>Consultora IA</div><div style={{ fontSize: 11, color: C.grayD }}>{safeLanc.length} lançamentos · {parcelados.length} parcelas</div></div>
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12 }}>{["Saúde financeira", "Acelerar reserva", "Investir mais?", "Dependência CLT", "Impacto parcelas", "Financiamento?"].map((s) => <button key={s} onClick={() => setAiQ(s)} style={{ fontSize: 11, padding: "6px 12px", borderRadius: 18, border: "1px solid " + C.border, cursor: "pointer", background: C.white, color: C.navy, fontWeight: 500 }}>{s}</button>)}</div>
-            <div style={{ ...crd, marginBottom: 12, display: "flex", gap: 8 }}><input type="text" placeholder="Pergunte..." value={aiQ} onChange={(e) => setAiQ(e.target.value)} onKeyDown={(e) => e.key === "Enter" && !aiLoad && askAI()} style={{ ...inp, flex: 1, borderRadius: 10, padding: "10px 14px" }} /><button onClick={askAI} disabled={aiLoad || !aiQ.trim()} style={{ ...btnP, borderRadius: 10, padding: "10px 18px" }}>{aiLoad ? <i className="ti ti-loader-2" style={{ animation: "spin 1s linear infinite" }} /> : <i className="ti ti-send" />}{aiLoad ? "..." : "Enviar"}</button></div>
-            {aiResp && !aiLoad && <div style={{ ...crd, borderLeft: "4px solid " + C.navy }}><div style={{ fontSize: 13, fontWeight: 600, color: C.navy, marginBottom: 8 }}>Análise</div><div style={{ fontSize: 14, lineHeight: 1.8, whiteSpace: "pre-wrap", color: "#334155" }}>{aiResp}</div></div>}
+            <div style={{ ...crd, marginBottom: 12 }}>
+              <div style={{ fontWeight: 600, fontSize: 14, color: C.navy }}>Consultora IA</div>
+              <div style={{ fontSize: 11, color: C.grayD }}>{safeLanc.length} lançamentos · {parcelados.length} parcelas</div>
+            </div>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12 }}>
+              {["Saúde financeira", "Acelerar reserva", "Investir mais?", "Dependência CLT", "Impacto parcelas", "Financiamento?"].map((s) => (
+                <button key={s} onClick={() => setAiQ(s)} style={{ fontSize: 11, padding: "6px 12px", borderRadius: 18, border: "1px solid " + C.border, cursor: "pointer", background: C.white, color: C.navy, fontWeight: 500 }}>
+                  {s}
+                </button>
+              ))}
+            </div>
+            <div style={{ ...crd, marginBottom: 12, display: "flex", gap: 8 }}>
+              <input type="text" placeholder="Pergunte..." value={aiQ} onChange={(e) => setAiQ(e.target.value)} onKeyDown={(e) => e.key === "Enter" && !aiLoad && askAI()} style={{ ...inp, flex: 1, borderRadius: 10, padding: "10px 14px" }} />
+              <button onClick={askAI} disabled={aiLoad || !aiQ.trim()} style={{ ...btnP, borderRadius: 10, padding: "10px 18px" }}>
+                {aiLoad ? <i className="ti ti-loader-2" style={{ animation: "spin 1s linear infinite" }} /> : <i className="ti ti-send" />}
+                {aiLoad ? "..." : "Enviar"}
+              </button>
+            </div>
+            {aiResp && !aiLoad && (
+              <div style={{ ...crd, borderLeft: "4px solid " + C.navy }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: C.navy, marginBottom: 8 }}>Análise</div>
+                <div style={{ fontSize: 14, lineHeight: 1.8, whiteSpace: "pre-wrap", color: "#334155" }}>{aiResp}</div>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -688,7 +833,12 @@ function Landing({ onEnter }) {
     <div style={{ color: "#1E293B" }}>
       <nav style={{ background: "rgba(255,255,255,.92)", borderBottom: "1px solid " + C.border, padding: "0 1.5rem" }}>
         <div style={{ maxWidth: 1100, margin: "0 auto", display: "flex", alignItems: "center", height: 60 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1 }}><div style={{ width: 32, height: 32, borderRadius: 8, background: C.navy, display: "flex", alignItems: "center", justifyContent: "center" }}><i className="ti ti-chart-pie-2" style={{ color: "#fff", fontSize: 17 }} /></div><span style={{ fontWeight: 600, fontSize: 16, color: C.navy }}>FinancePro</span></div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1 }}>
+            <div style={{ width: 32, height: 32, borderRadius: 8, background: C.navy, display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <i className="ti ti-chart-pie-2" style={{ color: "#fff", fontSize: 17 }} />
+            </div>
+            <span style={{ fontWeight: 600, fontSize: 16, color: C.navy }}>FinancePro</span>
+          </div>
           <button onClick={onEnter} className="btn-green" style={{ background: C.green, color: "#fff", border: "none", borderRadius: 8, padding: "8px 20px", fontSize: 13, fontWeight: 500, cursor: "pointer" }}>Entrar</button>
         </div>
       </nav>
@@ -706,23 +856,23 @@ export default function App() {
   const [screen, setScreen] = useState("landing");
   const [session, setSession] = useState(null);
 
-  function handleAuth(s) { 
+  function handleAuth(s) {
     console.log('✅ Autenticado:', s?.user?.email);
-    setSession(s); 
-    setScreen("app"); 
+    setSession(s);
+    setScreen("app");
   }
-  
+
   function handleLogout() {
     if (session?.access_token) {
-      fetch(SUPABASE_URL + "/auth/v1/logout", { 
-        method: "POST", 
-        headers: { 
-          apikey: SUPABASE_ANON_KEY, 
-          Authorization: "Bearer " + session.access_token 
-        } 
+      fetch(SUPABASE_URL + "/auth/v1/logout", {
+        method: "POST",
+        headers: {
+          apikey: SUPABASE_ANON_KEY,
+          Authorization: "Bearer " + session.access_token
+        }
       }).catch(() => {});
     }
-    setSession(null); 
+    setSession(null);
     setScreen("landing");
   }
 
