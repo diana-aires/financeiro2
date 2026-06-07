@@ -1105,15 +1105,14 @@ function Dashboard({ session, onLogout }) {
   </div>
 )}
         {/* ========== CARTÃO - PARCELAS POR MÊS ========== */}
-     {aba === "cartao" && (
+       {aba === "cartao" && (
   <div style={{ animation: "fadeUp .4s ease" }}>
-    {/* Cabeçalho com botão para novo cartão */}
     <div style={{ ...crd, marginBottom: 14 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
         <div>
-          <div style={{ fontWeight: 600, fontSize: 14, color: C.navy }}>Parcelas por Mês</div>
+          <div style={{ fontWeight: 600, fontSize: 14, color: C.navy }}>Parcelas no cartão</div>
           <div style={{ fontSize: 12, color: C.grayD }}>
-            Total de parcelas: {safeLanc.filter(l => l?.parcelas && l.parcelas > 0).length}
+            {parcelados.length} parcela(s) · Mensal: {fmt(parcelados.reduce((s, l) => s + Number(l.valor), 0))}
           </div>
         </div>
         <button 
@@ -1123,7 +1122,7 @@ function Dashboard({ session, onLogout }) {
               novoCartao = novoCartao.trim();
               if (!cartoes.includes(novoCartao)) {
                 setCartoes([...cartoes, novoCartao]);
-                toast(`✅ Cartão "${novoCartao}" adicionado!`);
+                toast(`✅ Cartão "${novoCartao}" adicionado com sucesso!`);
               } else {
                 toast(`⚠️ Cartão "${novoCartao}" já existe!`);
               }
@@ -1135,111 +1134,64 @@ function Dashboard({ session, onLogout }) {
           Novo Cartão
         </button>
       </div>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-        {cartoes.map((cartao) => (
-          <span key={cartao} style={{ padding: "4px 12px", background: C.slate, borderRadius: 20, fontSize: 12, border: "1px solid " + C.border }}>
-            {cartao}
-          </span>
-        ))}
-      </div>
     </div>
 
-    {/* Lista de parcelas por mês */}
-    {Object.keys(parcelasPorMes).length === 0 ? (
-      <div style={{ ...crd, textAlign: "center", padding: "3rem", color: C.grayD, fontSize: 13 }}>
-        <i className="ti ti-credit-card-off" style={{ fontSize: 48, display: "block", marginBottom: 16, opacity: 0.5 }} />
+    {parcelados.length === 0 ? (
+      <div style={{ ...crd, textAlign: "center", padding: "2rem", color: C.grayD, fontSize: 13 }}>
+        <i className="ti ti-credit-card" style={{ fontSize: 32, display: "block", marginBottom: 12, opacity: 0.5 }} />
         Nenhuma parcela encontrada.
-        <div style={{ fontSize: 12, marginTop: 8, color: C.gray }}>
-          Adicione compras parceladas nos lançamentos com a opção "Parcelamento"
+        <div style={{ fontSize: 11, marginTop: 8, color: C.gray }}>
+          Adicione compras parceladas nos lançamentos.
         </div>
       </div>
     ) : (
-      Object.keys(parcelasPorMes).sort().reverse().map((mes) => {
-        const parcelasDoMes = parcelasPorMes[mes];
-        const totalMes = parcelasDoMes.reduce((s, l) => s + Number(l.valor), 0);
-        const nomeMes = new Date(mes + "-01").toLocaleDateString("pt-BR", { month: "long", year: "numeric" });
-        
-        return (
-          <div key={mes} style={{ ...crd, marginBottom: 16 }}>
-            {/* Cabeçalho do mês */}
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, paddingBottom: 12, borderBottom: "2px solid " + C.border }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                <div style={{ width: 40, height: 40, borderRadius: 12, background: C.navy + "15", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                  <i className="ti ti-calendar-month" style={{ fontSize: 20, color: C.navy }} />
-                </div>
-                <div>
-                  <div style={{ fontWeight: 700, fontSize: 16, color: C.navy, textTransform: "capitalize" }}>{nomeMes}</div>
-                  <div style={{ fontSize: 11, color: C.grayD }}>
-                    {parcelasDoMes.length} parcela(s) • {Object.keys(parcelasDoMes.reduce((acc, l) => ({ ...acc, [l.cartao]: true }), {})).length} cartão(ões)
-                  </div>
-                </div>
-              </div>
-              <div style={{ fontSize: 22, fontWeight: 700, color: C.red, background: C.red + "10", padding: "6px 16px", borderRadius: 30 }}>
-                {fmt(totalMes)}
+      Object.entries(porCartao).map(([cartao, items]) => (
+        <div key={cartao} style={{ ...crd, marginBottom: 12 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <i className="ti ti-credit-card" style={{ fontSize: 16, color: C.navy }} />
+              <div>
+                <div style={{ fontWeight: 600, fontSize: 13, color: C.navy }}>{cartao}</div>
+                <div style={{ fontSize: 11, color: C.grayD }}>{items.length} item(ns)</div>
               </div>
             </div>
-
-            {/* Tabela de parcelas do mês */}
-            <div style={{ overflowX: "auto" }}>
-              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
-                <thead>
-                  <tr style={{ borderBottom: "1px solid " + C.border, background: C.slate }}>
-                    <th style={{ textAlign: "left", padding: "10px 8px", fontWeight: 600, color: C.grayD }}>Data Compra</th>
-                    <th style={{ textAlign: "left", padding: "10px 8px", fontWeight: 600, color: C.grayD }}>Descrição</th>
-                    <th style={{ textAlign: "left", padding: "10px 8px", fontWeight: 600, color: C.grayD }}>Categoria</th>
-                    <th style={{ textAlign: "center", padding: "10px 8px", fontWeight: 600, color: C.grayD }}>Parcela</th>
-                    <th style={{ textAlign: "left", padding: "10px 8px", fontWeight: 600, color: C.grayD }}>Cartão</th>
-                    <th style={{ textAlign: "right", padding: "10px 8px", fontWeight: 600, color: C.grayD }}>Valor</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {parcelasDoMes.map((l) => {
-                    const progresso = (l.parcela_atual / l.parcelas) * 100;
-                    return (
-                      <tr key={l.id} style={{ borderBottom: "1px solid " + C.border }} className="row-hover">
-                        <td style={{ padding: "10px 8px", color: C.grayD, whiteSpace: "nowrap" }}>
-                          {l.data_compra?.split("-").reverse().join("/")}
-                        </td>
-                        <td style={{ padding: "10px 8px", fontWeight: 500 }}>{l.descricao}</td>
-                        <td style={{ padding: "10px 8px" }}>
-                          <span style={{ fontSize: 10, padding: "4px 10px", borderRadius: 20, background: "#FEF2F2", color: C.red, whiteSpace: "nowrap" }}>
-                            {l.cat}
-                          </span>
-                        </td>
-                        <td style={{ padding: "10px 8px", textAlign: "center" }}>
-                          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
-                            <span style={{ fontWeight: 600, fontSize: 13, color: C.navy }}>{l.parcela_atual}/{l.parcelas}</span>
-                            <div style={{ width: "60px" }}>
-                              <Bar pct={progresso} color={progresso >= 100 ? C.green : C.purple} />
-                            </div>
-                          </div>
-                        </td>
-                        <td style={{ padding: "10px 8px" }}>
-                          <span style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "2px 8px", background: C.navy + "10", borderRadius: 15, fontSize: 11, color: C.navy }}>
-                            <i className="ti ti-credit-card" style={{ fontSize: 11 }} />
-                            {l.cartao || "Sem cartão"}
-                          </span>
-                        </td>
-                        <td style={{ padding: "10px 8px", textAlign: "right", fontWeight: 700, color: C.red, whiteSpace: "nowrap" }}>
-                          {fmt(l.valor)}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-                <tfoot>
-                  <tr style={{ borderTop: "2px solid " + C.border, background: C.slate }}>
-                    <td colSpan={5} style={{ padding: "10px 8px", fontWeight: 600 }}>Total do mês</td>
-                    <td style={{ padding: "10px 8px", textAlign: "right", fontWeight: 700, fontSize: 14, color: C.red }}>
-                      {fmt(totalMes)}
-                    </td>
-                  </tr>
-                </tfoot>
-              </table>
+            <div style={{ fontSize: 14, fontWeight: 700, color: C.navy }}>
+              {fmt(items.reduce((s, l) => s + Number(l.valor), 0))}/mês
             </div>
           </div>
-        );
-      })
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+              <thead>
+                <tr style={{ borderBottom: "2px solid " + C.border }}>
+                  {["Descrição", "Parcela", "Progresso", "Valor", "Restante"].map((h) => (
+                    <th key={h} style={{ textAlign: "left", padding: "8px", fontWeight: 600, color: C.grayD }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {items.map((l) => {
+                  const pa = l.parcela_atual || 1;
+                  const pt = l.parcelas;
+                  const pct = (pa / pt) * 100;
+                  const rest = (pt - pa) * Number(l.valor);
+                  return (
+                    <tr key={l.id} style={{ borderBottom: "1px solid " + C.border }}>
+                      <td style={{ padding: 8, fontWeight: 500 }}>{l.descricao}</td>
+                      <td style={{ padding: 8, color: C.grayD }}>{pa}/{pt}</td>
+                      <td style={{ padding: 8, minWidth: 100 }}>
+                        <Bar pct={pct} color={pct >= 100 ? C.green : C.purple} />
+                        <span style={{ fontSize: 10, marginLeft: 8 }}>{Math.round(pct)}%</span>
+                      </td>
+                      <td style={{ padding: 8, color: C.red, whiteSpace: "nowrap" }}>{fmt(l.valor)}</td>
+                      <td style={{ padding: 8, color: C.grayD, whiteSpace: "nowrap" }}>{fmt(rest)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ))
     )}
   </div>
 )}
