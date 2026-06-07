@@ -58,17 +58,39 @@ async function sb(path, opts = {}) {
     apikey: SUPABASE_ANON_KEY,
     Authorization: "Bearer " + (token || SUPABASE_ANON_KEY),
   };
-  if (method === "POST" || method === "PATCH") headers.Prefer = "return=representation";
   
   try {
-    const r = await safeFetch(SUPABASE_URL + "/rest/v1" + path, {
-      method, headers,
+    const url = SUPABASE_URL + "/rest/v1" + path;
+    console.log(`📡 ${method} ${url}`, body ? { body } : '');
+    
+    const r = await fetch(url, {
+      method,
+      headers,
       body: body ? JSON.stringify(body) : undefined,
     });
+    
+    // Log do status da resposta
+    console.log(`📡 Resposta: ${r.status} ${r.statusText}`);
+    
+    if (!r.ok) {
+      const errorText = await r.text();
+      console.error('❌ Erro na requisição:', r.status, errorText);
+      
+      // Tentar parsear o erro
+      let errorJson;
+      try {
+        errorJson = JSON.parse(errorText);
+      } catch(e) {
+        errorJson = { message: errorText };
+      }
+      
+      throw new Error(errorJson.message || errorJson.error || `HTTP ${r.status}`);
+    }
+    
     const txt = await r.text();
     
     if (!txt || txt.trim() === '' || txt === 'null' || txt === 'undefined') {
-      console.warn('📭 Resposta vazia ou nula da API:', path);
+      console.warn('📭 Resposta vazia da API:', path);
       return [];
     }
     
@@ -76,18 +98,15 @@ async function sb(path, opts = {}) {
     try {
       result = JSON.parse(txt);
     } catch (e) {
-      console.error('❌ Erro ao fazer parse do JSON:', e);
+      console.error('❌ Erro ao fazer parse do JSON:', e, 'Texto:', txt);
       return [];
     }
     
-    if (result === null || result === undefined) return [];
-    if (Array.isArray(result)) return result;
-    if (typeof result === 'object') return [result];
-    
-    return [];
+    return result === null || result === undefined ? [] : result;
     
   } catch (error) {
     console.error('❌ Erro crítico na requisição Supabase:', error);
+    toastError(error.message);
     return [];
   }
 }
@@ -235,6 +254,20 @@ function GerenciarCategorias({ token, catsR, catsD, onCategoriasChange }) {
   const [editando, setEditando] = useState(null);
   const [form, setForm] = useState({ ...CATEGORIA_BLANK });
   const [toastMsg, setToastMsg] = useState("");
+const [toastType, setToastType] = useState("success"); // success, error, warning
+
+function toast(message, type = "success") {
+  setToastMsg(message);
+  setToastType(type);
+  setTimeout(() => {
+    setToastMsg("");
+    setToastType("success");
+  }, 3000);
+}
+
+function toastError(message) {
+  toast(message, "error");
+}
   const [filtroTipo, setFiltroTipo] = useState("todos");
   const [filtroClassificacao, setFiltroClassificacao] = useState("todos");
 
@@ -1106,6 +1139,7 @@ function Dashboard({ session, onLogout }) {
 )}
         {/* ========== CARTÃO - PARCELAS POR MÊS ========== */}
       {/* ========== CARTÃO - APENAS PARCELAS ATIVAS (SEM FUTURO) ========== */}
+{/* ========== CARTÃO - VERSÃO CORRIGIDA ========== */}
 {aba === "cartao" && (
   <div style={{ animation: "fadeUp .4s ease" }}>
     <div style={{ ...crd, marginBottom: 14 }}>
@@ -1113,7 +1147,7 @@ function Dashboard({ session, onLogout }) {
         <div>
           <div style={{ fontWeight: 600, fontSize: 14, color: C.navy }}>Parcelas no cartão</div>
           <div style={{ fontSize: 12, color: C.grayD }}>
-            Apenas parcelas com pagamento em andamento
+            Acompanhamento de compras parceladas
           </div>
         </div>
         <button 
@@ -1123,9 +1157,9 @@ function Dashboard({ session, onLogout }) {
               novoCartao = novoCartao.trim();
               if (!cartoes.includes(novoCartao)) {
                 setCartoes([...cartoes, novoCartao]);
-                toast(`✅ Cartão "${novoCartao}" adicionado com sucesso!`);
+                toast(`✅ Cartão "${novoCartao}" adicionado!`);
               } else {
-                toast(`⚠️ Cartão "${novoCartao}" já existe!`);
+                toast(`⚠️ Cartão "${novoCartao}" já existe!`, "warning");
               }
             }
           }}
@@ -1137,132 +1171,204 @@ function Dashboard({ session, onLogout }) {
       </div>
     </div>
 
-    {/* Filtra apenas lançamentos com parcelamento ativo (parcela_atual <= parcelas) */}
+    {/* Verificação de segurança para safeLanc */}
     {(() => {
-      // CORREÇÃO: Declarar as variáveis aqui dentro
-      const parceladosAtivos = safeLanc.filter(l => 
+      // Garantir que safeLanc é um array
+      const lancamentosArray = Array.isArray(safeLanc) ? safeLanc : [];
+      
+      // Filtrar apenas lançamentos com parcelamento
+      const parcelados = lancamentosArray.filter(l => 
+        l && 
         l.parcelas && 
         l.parcelas > 0 && 
         l.parcela_atual && 
-        l.parcela_atual <= l.parcelas &&
-        l.parcela_atual < l.parcelas // Mostra apenas as que ainda têm parcelas a pagar
+        l.parcela_atual <= l.parcelas
       );
       
-      const porCartao = parceladosAtivos.reduce((acc, l) => {
+      // Agrupar por cartão
+      const porCartao = parcelados.reduce((acc, l) => {
         const cartao = l.cartao || "Sem cartão";
         if (!acc[cartao]) acc[cartao] = [];
         acc[cartao].push(l);
         return acc;
       }, {});
       
-      const totalMensal = parceladosAtivos.reduce((s, l) => s + Number(l.valor), 0);
+      const totalMensal = parcelados.reduce((s, l) => s + Number(l.valor || 0), 0);
       
       return (
         <>
-          {parceladosAtivos.length === 0 ? (
-            <div style={{ ...crd, textAlign: "center", padding: "2rem", color: C.grayD, fontSize: 13 }}>
-              <i className="ti ti-credit-card" style={{ fontSize: 32, display: "block", marginBottom: 12, opacity: 0.5 }} />
-              Nenhuma parcela ativa no momento.
-              <div style={{ fontSize: 11, marginTop: 8, color: C.gray }}>
-                Adicione compras parceladas nos lançamentos.
+          {parcelados.length === 0 ? (
+            <div style={{ ...crd, textAlign: "center", padding: "2rem", color: C.grayD }}>
+              <i className="ti ti-credit-card" style={{ fontSize: 48, display: "block", marginBottom: 12, opacity: 0.5 }} />
+              <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 8 }}>Nenhuma parcela ativa</div>
+              <div style={{ fontSize: 12 }}>
+                Adicione compras parceladas nos lançamentos para ver o acompanhamento aqui.
               </div>
             </div>
           ) : (
             <>
-              <div style={{ ...crd, marginBottom: 12, background: C.navy + "08" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+              {/* Resumo */}
+              <div style={{ ...crd, marginBottom: 16, background: "linear-gradient(135deg, " + C.navy + "08, " + C.purple + "08)" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 16 }}>
                   <div>
-                    <span style={{ fontSize: 12, color: C.grayD }}>Total comprometido por mês:</span>
-                    <span style={{ fontSize: 18, fontWeight: 700, color: C.navy, marginLeft: 8 }}>{fmt(totalMensal)}</span>
+                    <div style={{ fontSize: 12, color: C.grayD, marginBottom: 4 }}>Total por mês</div>
+                    <div style={{ fontSize: 24, fontWeight: 700, color: C.navy }}>{fmt(totalMensal)}</div>
                   </div>
                   <div>
-                    <span style={{ fontSize: 12, color: C.grayD }}>Total de parcelas ativas:</span>
-                    <span style={{ fontSize: 14, fontWeight: 600, color: C.purple, marginLeft: 8 }}>{parceladosAtivos.length}</span>
+                    <div style={{ fontSize: 12, color: C.grayD, marginBottom: 4 }}>Parcelas ativas</div>
+                    <div style={{ fontSize: 24, fontWeight: 700, color: C.purple }}>{parcelados.length}</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 12, color: C.grayD, marginBottom: 4 }}>Comprometimento</div>
+                    <div style={{ fontSize: 24, fontWeight: 700, color: totalMensal > 0 ? C.orange : C.green }}>
+                      {totalMensal > 0 ? "⚠️ Alto" : "✅ Saudável"}
+                    </div>
                   </div>
                 </div>
               </div>
               
+              {/* Lista por cartão */}
               {Object.entries(porCartao).map(([cartao, items]) => (
-                <div key={cartao} style={{ ...crd, marginBottom: 12 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      <i className="ti ti-credit-card" style={{ fontSize: 16, color: C.navy }} />
+                <div key={cartao} style={{ ...crd, marginBottom: 16 }}>
+                  <div style={{ 
+                    display: "flex", 
+                    justifyContent: "space-between", 
+                    alignItems: "center", 
+                    marginBottom: 16,
+                    paddingBottom: 12,
+                    borderBottom: "2px solid " + C.border
+                  }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <div style={{ 
+                        width: 40, 
+                        height: 40, 
+ borderRadius: 10, 
+                        background: C.navy + "12", 
+                        display: "flex", 
+                        alignItems: "center", 
+                        justifyContent: "center" 
+                      }}>
+                        <i className="ti ti-credit-card" style={{ fontSize: 20, color: C.navy }} />
+                      </div>
                       <div>
-                        <div style={{ fontWeight: 600, fontSize: 13, color: C.navy }}>{cartao}</div>
-                        <div style={{ fontSize: 11, color: C.grayD }}>{items.length} parcela(s) ativa(s)</div>
+                        <div style={{ fontWeight: 700, fontSize: 16, color: C.navy }}>{cartao}</div>
+                        <div style={{ fontSize: 11, color: C.grayD }}>{items.length} parcela(s)</div>
                       </div>
                     </div>
-                    <div style={{ fontSize: 14, fontWeight: 700, color: C.navy }}>
-                      {fmt(items.reduce((s, l) => s + Number(l.valor), 0))}/mês
+                    <div style={{ fontSize: 18, fontWeight: 700, color: C.navy }}>
+                      {fmt(items.reduce((s, l) => s + Number(l.valor), 0))}
+                      <span style={{ fontSize: 11, fontWeight: 400, color: C.grayD, marginLeft: 4 }}>/mês</span>
                     </div>
                   </div>
+                  
                   <div style={{ overflowX: "auto" }}>
-                    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
                       <thead>
-                        <tr style={{ borderBottom: "2px solid " + C.border }}>
-                          <th style={{ textAlign: "left", padding: "8px", fontWeight: 600, color: C.grayD }}>Descrição</th>
-                          <th style={{ textAlign: "left", padding: "8px", fontWeight: 600, color: C.grayD }}>Parcela</th>
-                          <th style={{ textAlign: "left", padding: "8px", fontWeight: 600, color: C.grayD }}>Progresso</th>
-                          <th style={{ textAlign: "left", padding: "8px", fontWeight: 600, color: C.grayD }}>Valor</th>
-                          <th style={{ textAlign: "left", padding: "8px", fontWeight: 600, color: C.grayD }}>Restante</th>
-                          <th style={{ textAlign: "center", padding: "8px", fontWeight: 600, color: C.grayD }}>Ações</th>
+                        <tr style={{ borderBottom: "2px solid " + C.border, background: C.slate }}>
+                          <th style={{ textAlign: "left", padding: "10px", fontWeight: 600, color: C.grayD }}>Descrição</th>
+                          <th style={{ textAlign: "center", padding: "10px", fontWeight: 600, color: C.grayD }}>Parcela</th>
+                          <th style={{ textAlign: "left", padding: "10px", fontWeight: 600, color: C.grayD }}>Progresso</th>
+                          <th style={{ textAlign: "right", padding: "10px", fontWeight: 600, color: C.grayD }}>Valor</th>
+                          <th style={{ textAlign: "right", padding: "10px", fontWeight: 600, color: C.grayD }}>Restante</th>
+                          <th style={{ textAlign: "center", padding: "10px", fontWeight: 600, color: C.grayD }}>Ações</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {items.map((l) => {
+                        {items.map((l, idx) => {
                           const pa = l.parcela_atual || 1;
-                          const pt = l.parcelas;
+                          const pt = l.parcelas || 1;
                           const pct = (pa / pt) * 100;
                           const rest = (pt - pa) * Number(l.valor);
-                          const parcelasRestantes = pt - pa;
+                          const concluida = pa >= pt;
                           
                           return (
-                            <tr key={l.id} style={{ borderBottom: "1px solid " + C.border }}>
-                              <td style={{ padding: 8, fontWeight: 500 }}>{l.descricao}</td>
-                              <td style={{ padding: 8, color: C.grayD }}>{pa}/{pt}</td>
-                              <td style={{ padding: 8, minWidth: 100 }}>
-                                <Bar pct={pct} color={pct >= 100 ? C.green : C.purple} />
-                                <span style={{ fontSize: 10, marginLeft: 8 }}>{Math.round(pct)}%</span>
+                            <tr 
+                              key={l.id} 
+                              style={{ 
+                                borderBottom: idx === items.length - 1 ? "none" : "1px solid " + C.border,
+                                opacity: concluida ? 0.6 : 1,
+                                background: concluida ? C.green + "08" : "transparent"
+                              }}
+                            >
+                              <td style={{ padding: "12px 10px", fontWeight: 500 }}>
+                                {l.descricao}
+                                {concluida && (
+                                  <span style={{ 
+                                    marginLeft: 8, 
+                                    fontSize: 10, 
+                                    padding: "2px 6px", 
+                                    borderRadius: 99, 
+                                    background: C.green + "20", 
+                                    color: C.green 
+                                  }}>
+                                    Concluída
+                                  </span>
+                                )}
                               </td>
-                              <td style={{ padding: 8, color: C.red, whiteSpace: "nowrap" }}>{fmt(l.valor)}</td>
-                              <td style={{ padding: 8, color: C.grayD, whiteSpace: "nowrap" }}>
-                                {fmt(rest)} ({parcelasRestantes} × {fmt(l.valor)})
+                              <td style={{ padding: "12px 10px", textAlign: "center", fontWeight: 600, color: C.navy }}>
+                                {pa}/{pt}
                               </td>
-                              <td style={{ padding: 8, whiteSpace: "nowrap", textAlign: "center" }}>
-                                <button 
+                              <td style={{ padding: "12px 10px", minWidth: 150 }}>
+                                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                  <div style={{ flex: 1 }}>
+                                    <Bar pct={pct} color={concluida ? C.green : C.purple} />
+                                  </div>
+                                  <span style={{ fontSize: 11, fontWeight: 500, minWidth: 45, color: concluida ? C.green : C.purple }}>
+                                    {Math.round(pct)}%
+                                  </span>
+                                </div>
+                              </td>
+                              <td style={{ padding: "12px 10px", textAlign: "right", fontWeight: 600, color: C.red }}>
+                                {fmt(l.valor)}
+                              </td>
+                              <td style={{ padding: "12px 10px", textAlign: "right", color: concluida ? C.green : C.grayD }}>
+                                {concluida ? (
+                                  "✓ Pago"
+                                ) : (
+                                  <>
+                                    {fmt(rest)}
+                                    <span style={{ fontSize: 10, marginLeft: 4 }}>
+                                      ({pt - pa}x)
+                                    </span>
+                                  </>
+                                )}
+                              </td>
+                              <td style={{ padding: "12px 10px", textAlign: "center", whiteSpace: "nowrap" }}>
+                                {!concluida && (
+                                  <button
+                                    onClick={async () => {
+                                      if (window.confirm(`Marcar parcela ${pa}/${pt} como paga?`)) {
+                                        try {
+                                          await sb("/lancamentos?id=eq." + l.id, {
+                                            method: "PATCH",
+                                            token,
+                                            body: { parcela_atual: pa + 1 }
+                                          });
+                                          setLanc(prev => prev.map(item =>
+                                            item.id === l.id ? { ...item, parcela_atual: pa + 1 } : item
+                                          ));
+                                          toast(`✅ Parcela ${pa}/${pt} paga!`);
+                                        } catch (err) {
+                                          toast("❌ Erro ao atualizar parcela", "error");
+                                        }
+                                      }
+                                    }}
+                                    style={btnI}
+                                    title="Marcar como paga"
+                                  >
+                                    <i className="ti ti-check" style={{ fontSize: 16, color: C.green }} />
+                                  </button>
+                                )}
+                                <button
                                   onClick={() => {
-                                    if (window.confirm(`Marcar parcela ${pa}/${pt} como paga?`)) {
-                                      const novoValor = Number(l.valor);
-                                      updMeta(l.id, novoValor);
-                                      // Atualiza a parcela atual
-                                      const novasParcelas = { ...l, parcela_atual: pa + 1 };
-                                      sb("/lancamentos?id=eq." + l.id, { 
-                                        method: "PATCH", 
-                                        token, 
-                                        body: { parcela_atual: pa + 1 } 
-                                      }).then(() => {
-                                        setLanc(prev => prev.map(item => 
-                                          item.id === l.id ? { ...item, parcela_atual: pa + 1 } : item
-                                        ));
-                                        toast(`✅ Parcela ${pa}/${pt} paga!`);
-                                      }).catch(() => toast("Erro ao atualizar parcela"));
-                                    }
-                                  }}
-                                  style={btnI}
-                                  title="Marcar parcela como paga"
-                                >
-                                  <i className="ti ti-check" style={{ fontSize: 13, color: C.green }} />
-                                </button>
-                                <button 
-                                  onClick={() => {
-                                    if (window.confirm(`Deseja remover este parcelamento?`)) {
+                                    if (window.confirm(`Remover este parcelamento?\nDescrição: ${l.descricao}\nValor: ${fmt(l.valor)}`)) {
                                       del(l.id);
                                     }
                                   }}
                                   style={btnI}
-                                  title="Remover parcelamento"
+                                  title="Remover"
                                 >
-                                  <i className="ti ti-trash" style={{ fontSize: 13, color: C.red }} />
+                                  <i className="ti ti-trash" style={{ fontSize: 16, color: C.red }} />
                                 </button>
                               </td>
                             </tr>
