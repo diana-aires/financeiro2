@@ -563,6 +563,406 @@ function Dashboard({ session, onLogout }) {
     if (!dataCompra || !parcelaAtual) return dataCompra;
     const data = new Date(dataCompra);
     data.setMonth(data.getMonth() + (parcelaAtual - 1));
+  // Adicione esta função no início do componente Dashboard, antes do return
+
+// Função para extrair dados do PDF da fatura
+async function extractDataFromPDF(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = async function(e) {
+      try {
+        const typedarray = new Uint8Array(e.target.result);
+        
+        // Usando pdf.js para extrair texto
+        const pdf = await pdfjsLib.getDocument({ data: typedarray }).promise;
+        let fullText = '';
+        
+        for (let i = 1; i <= pdf.numPages; i++) {
+          const page = await pdf.getPage(i);
+          const textContent = await page.getTextContent();
+          const pageText = textContent.items.map(item => item.str).join(' ');
+          fullText += pageText + '\n';
+        }
+        
+        // Processar o texto extraído para encontrar transações
+        const transactions = parseTransactionsFromText(fullText);
+        resolve(transactions);
+      } catch (error) {
+        reject(error);
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  });
+}
+
+// Função para parsear transações do texto do PDF
+function parseTransactionsFromText(text) {
+  const transactions = [];
+  
+  // Padrões comuns em faturas de cartão (ajuste conforme necessário)
+  // Formato típico: DATA DESCRICAO VALOR
+  // Ex: 10/05 SUPERMERCADO 123,45
+  
+  const lines = text.split('\n');
+  const datePattern = /(\d{2}\/\d{2})/; // DD/MM
+  const valuePattern = /(\d+[.,]\d{2})/; // Valor com vírgula ou ponto
+  
+  let currentDate = null;
+  let dueDate = null;
+  
+  // Tentar encontrar a data de vencimento da fatura
+  const dueDatePattern = /vencimento|due date|fechamento/i;
+  for (const line of lines) {
+    if (dueDatePattern.test(line)) {
+      const dateMatch = line.match(/(\d{2}\/\d{2}\/\d{4})|(\d{2}\/\d{2})/);
+      if (dateMatch) {
+        dueDate = dateMatch[0];
+        if (dueDate.length === 5) { // DD/MM sem ano
+          const currentYear = new Date().getFullYear();
+          dueDate = `${dueDate}/${currentYear}`;
+        }
+        break;
+      }
+    }
+  }
+  
+  // Se não encontrou data de vencimento, usar data atual + 10 dias
+  if (!dueDate) {
+    const today = new Date();
+    today.setDate(today.getDate() + 10);
+    dueDate = today.toISOString().split('T')[0];
+  } else {
+    dueDate = convertDateToISO(dueDate);
+  }
+  
+  // Processar linhas para encontrar transações
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (!line) continue;
+    
+    // Tentar encontrar data no início da linha
+    const dateMatch = line.match(datePattern);
+    if (dateMatch) {
+      currentDate = dateMatch[1];
+      
+      // Tentar encontrar valor no final da linha
+      const valueMatch = line.match(valuePattern);
+      if (valueMatch) {
+        let valueStr = valueMatch[1].replace(',', '.');
+        const value = parseFloat(valueStr);
+        
+        // Extrair descrição (tudo entre a data e o valor)
+        const dateIndex = line.indexOf(currentDate);
+        const valueIndex = line.lastIndexOf(valueMatch[1]);
+        let description = line.substring(dateIndex + currentDate.length, valueIndex).trim();
+        
+        // Limpar descrição
+        description = description.replace(/[^\w\s\u00C0-\u00FF-]/g, ' ').replace(/\s+/g, ' ').trim();
+        
+        if (description && value > 0) {
+          // Determinar categoria baseada na descrição
+          const category = categorizeTransaction(description);
+          
+          transactions.push({
+            data_compra: convertDateToISO(currentDate),
+            data_vencimento: dueDate,
+            descricao: description.substring(0, 100),
+            valor: value,
+            cat: category,
+            tipo: "despesa",
+            cartao: "Importado",
+            parcelas: null,
+            parcela_atual: null
+          });
+        }
+      }
+    }
+  }
+  
+  return transactions;
+}
+
+// Função para categorizar automaticamente baseado na descrição
+function categorizeTransaction(description) {
+  const keywords = {
+    'SUPERMERCADO|MERCADO|PADARIA|ACOUGUE|FEIRA': 'Alimentação',
+    'UBER|TAXI|99|TRANSPORTE|GASOLINA|POSTO': 'Transporte',
+    'NETFLIX|SPOTIFY|AMAZON PRIME|DISNEY|HBO|STREAMING': 'Assinaturas',
+    'FARMACIA|DROGARIA|SAUDE|MEDICO|DENTISTA': 'Saúde',
+    'RESTAURANTE|IFOOD|COMIDA|LANCHONETE': 'Alimentação',
+    'SHOPPING|LOJA|MAGAZINE|MERCADO LIVRE': 'Compras',
+    'LUZ|ENERGIA|AGUA|GAS|TELEFONE|INTERNET': 'Contas',
+    'ACADEMIA|GINASTICA|ESPORTE': 'Saúde',
+    'VIAGEM|HOTEL|PASSAGEM': 'Viagem',
+    'CINEMA|TEATRO|SHOW|LAZER': 'Lazer'
+  };
+  
+  const upperDesc = description.toUpperCase();
+  for (const [pattern, category] of Object.entries(keywords)) {
+    if (new RegExp(pattern, 'i').test(upperDesc)) {
+      return category;
+    }
+  }
+  
+  return 'Outro';
+}
+
+// Função para converter data DD/MM ou DD/MM/YYYY para ISO
+function convertDateToISO(dateStr) {
+  let day, month, year;
+  
+  if (dateStr.includes('/')) {
+    const parts = dateStr.split('/');
+    day = parts[0].padStart(2, '0');
+    month = parts[1].padStart(2, '0');
+    
+    if (parts.length === 3) {
+      year = parts[2];
+    } else {
+      year = new Date().getFullYear();
+      // Se o mês for menor que o atual, considera ano que vem
+      const currentMonth = new Date().getMonth() + 1;
+      if (parseInt(month) < currentMonth) {
+        year++;
+      }
+    }
+  } else {
+    // Se já estiver em formato ISO
+    return dateStr;
+  }
+  
+  return `${year}-${month}-${day}`;
+}
+
+// Função para verificar duplicatas
+async function checkDuplicate(transaction, token) {
+  // Buscar lançamentos existentes nos últimos 5 dias
+  const fiveDaysAgo = new Date();
+  fiveDaysAgo.setDate(fiveDaysAgo.getDate() - 5);
+  const fiveDaysAgoStr = fiveDaysAgo.toISOString().split('T')[0];
+  
+  const existing = await sb(`/lancamentos?data_compra=gte.${fiveDaysAgoStr}&descricao=ilike.*${encodeURIComponent(transaction.descricao.substring(0, 30))}*&valor=eq.${transaction.valor}&select=id`, { token });
+  
+  return Array.isArray(existing) && existing.length > 0;
+}
+
+// Componente do modal de importação
+function ImportFaturaModal({ isOpen, onClose, onImport, token, uid }) {
+  const [file, setFile] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [preview, setPreview] = useState([]);
+  const [status, setStatus] = useState({ total: 0, novos: 0, duplicados: 0, erros: 0 });
+  const [processing, setProcessing] = useState(false);
+  
+  const handleFileChange = (e) => {
+    const selectedFile = e.target.files[0];
+    if (selectedFile && selectedFile.type === 'application/pdf') {
+      setFile(selectedFile);
+      setPreview([]);
+      setStatus({ total: 0, novos: 0, duplicados: 0, erros: 0 });
+    } else {
+      alert('Por favor, selecione um arquivo PDF válido.');
+      e.target.value = '';
+    }
+  };
+  
+  const handlePreview = async () => {
+    if (!file) return;
+    setLoading(true);
+    try {
+      const transactions = await extractDataFromPDF(file);
+      setPreview(transactions);
+      setStatus({ ...status, total: transactions.length });
+    } catch (error) {
+      console.error('Erro ao processar PDF:', error);
+      alert('Erro ao processar o PDF. Verifique se o arquivo é uma fatura válida.');
+    }
+    setLoading(false);
+  };
+  
+  const handleImport = async () => {
+    if (preview.length === 0) return;
+    setProcessing(true);
+    
+    let novos = 0;
+    let duplicados = 0;
+    let erros = 0;
+    
+    for (const transaction of preview) {
+      try {
+        // Verificar duplicata
+        const isDuplicate = await checkDuplicate(transaction, token);
+        
+        if (!isDuplicate) {
+          // Salvar lançamento
+          const obj = {
+            tipo: transaction.tipo,
+            cat: transaction.cat,
+            descricao: transaction.descricao,
+            valor: transaction.valor,
+            data_compra: transaction.data_compra,
+            data_vencimento: transaction.data_vencimento,
+            parcelas: transaction.parcelas,
+            parcela_atual: transaction.parcela_atual,
+            cartao: transaction.cartao || "Importado",
+            user_id: uid
+          };
+          
+          const result = await sb("/lancamentos", { method: "POST", token, body: obj });
+          if (result && (result.id || result.success !== false)) {
+            novos++;
+          } else {
+            erros++;
+          }
+        } else {
+          duplicados++;
+        }
+      } catch (error) {
+        console.error('Erro ao salvar transação:', error);
+        erros++;
+      }
+    }
+    
+    setStatus({ total: preview.length, novos, duplicados, erros });
+    alert(`Importação concluída!\n✅ Novos: ${novos}\n⚠️ Duplicados: ${duplicados}\n❌ Erros: ${erros}`);
+    
+    if (novos > 0) {
+      onImport(); // Recarregar lista
+    }
+    
+    setProcessing(false);
+    onClose();
+  };
+  
+  if (!isOpen) return null;
+  
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 700, width: '90%' }}>
+        <div style={{ padding: '1.5rem' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+            <h3 style={{ fontSize: 18, fontWeight: 600, color: C.navy, margin: 0 }}>Importar Fatura em PDF</h3>
+            <button onClick={onClose} style={btnI}>
+              <i className="ti ti-x" style={{ fontSize: 20, color: C.grayD }} />
+            </button>
+          </div>
+          
+          <div style={{ marginBottom: 20 }}>
+            <label style={lab}>Selecione o arquivo PDF da fatura</label>
+            <input 
+              type="file" 
+              accept=".pdf" 
+              onChange={handleFileChange} 
+              style={{ ...inp, padding: '10px' }}
+            />
+            <div style={{ fontSize: 11, color: C.grayD, marginTop: 5 }}>
+              Suporta faturas de cartão de crédito em formato PDF
+            </div>
+          </div>
+          
+          {file && !loading && preview.length === 0 && (
+            <button onClick={handlePreview} style={{ ...btnP, marginBottom: 20 }}>
+              <i className="ti ti-eye" />
+              Visualizar transações
+            </button>
+          )}
+          
+          {loading && (
+            <div style={{ textAlign: 'center', padding: '2rem' }}>
+              <i className="ti ti-loader-2" style={{ animation: 'spin 1s linear infinite', fontSize: 32 }} />
+              <div style={{ marginTop: 10, fontSize: 13, color: C.grayD }}>Processando PDF...</div>
+            </div>
+          )}
+          
+          {preview.length > 0 && !processing && (
+            <>
+              <div style={{ marginBottom: 15 }}>
+                <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 10 }}>Prévia das transações encontradas:</div>
+                <div style={{ maxHeight: 400, overflowY: 'auto', border: `1px solid ${C.border}`, borderRadius: 8 }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                    <thead style={{ position: 'sticky', top: 0, background: C.white }}>
+                      <tr style={{ borderBottom: `2px solid ${C.border}` }}>
+                        <th style={{ padding: 8, textAlign: 'left' }}>Data</th>
+                        <th style={{ padding: 8, textAlign: 'left' }}>Descrição</th>
+                        <th style={{ padding: 8, textAlign: 'right' }}>Valor</th>
+                        <th style={{ padding: 8, textAlign: 'left' }}>Categoria</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {preview.map((trans, idx) => (
+                        <tr key={idx} style={{ borderBottom: `1px solid ${C.border}` }}>
+                          <td style={{ padding: 8 }}>{trans.data_compra.split('-').reverse().join('/')}</td>
+                          <td style={{ padding: 8 }}>{trans.descricao}</td>
+                          <td style={{ padding: 8, textAlign: 'right', color: C.red }}>{fmt(trans.valor)}</td>
+                          <td style={{ padding: 8 }}>{trans.cat}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+              
+              <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+                <button onClick={onClose} style={{ ...btnP, background: C.grayD }}>Cancelar</button>
+                <button onClick={handleImport} style={btnS}>
+                  <i className="ti ti-device-floppy" />
+                  Importar {preview.length} transações
+                </button>
+              </div>
+            </>
+          )}
+          
+          {processing && (
+            <div style={{ textAlign: 'center', padding: '2rem' }}>
+              <i className="ti ti-loader-2" style={{ animation: 'spin 1s linear infinite', fontSize: 32 }} />
+              <div style={{ marginTop: 10, fontSize: 13, color: C.grayD }}>Importando transações...</div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Adicione este state no componente Dashboard, junto com os outros states
+const [showImportModal, setShowImportModal] = useState(false);
+
+// Adicione esta função no componente Dashboard
+const handleImportComplete = async () => {
+  // Recarregar lançamentos
+  const updated = await sb("/lancamentos?order=data_vencimento.desc", { token });
+  if (Array.isArray(updated)) {
+    setLanc(updated);
+  }
+  toast("📥 Lançamentos importados com sucesso!");
+};
+
+// Adicione o script do pdf.js no início do arquivo, após os imports
+// Adicione esta linha no head do HTML ou no início do componente
+// <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
+// Ou instale via npm: npm install pdfjs-dist
+
+// Adicione este botão na aba de cartão, junto com o botão "Novo Cartão"
+// Dentro da aba "cartao", no primeiro div com style {...crd, marginBottom: 14}, adicione:
+
+<button 
+  onClick={() => setShowImportModal(true)}
+  style={{ ...btnP, gap: 6, background: C.purple }}
+>
+  <i className="ti ti-file-import" style={{ fontSize: 14 }} />
+  Importar Fatura PDF
+</button>
+
+// E adicione o modal no final do componente Dashboard, antes do fechamento da div principal
+{showImportModal && (
+  <ImportFaturaModal 
+    isOpen={showImportModal}
+    onClose={() => setShowImportModal(false)}
+    onImport={handleImportComplete}
+    token={token}
+    uid={uid || "475c14a4-603f-472d-96d4-c407c205c597"}
+  />
+)}
     return data.toISOString().split("T")[0];
   };
 
