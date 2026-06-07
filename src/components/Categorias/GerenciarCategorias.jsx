@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { C, styles } from '../../styles/theme';
-import { sb } from '../../services/supabase';
+import sb from '../../services/supabase'; // CORRIGIDO: era `import { sb }` → default export
 import { CATEGORIA_BLANK, ICONES } from '../../utils/constants';
 
 export function GerenciarCategorias({ token, onCategoriasChange }) {
@@ -13,9 +13,9 @@ export function GerenciarCategorias({ token, onCategoriasChange }) {
   const [filtroTipo, setFiltroTipo] = useState("todos");
   const [filtroClassificacao, setFiltroClassificacao] = useState("todos");
 
-  function toast(m) { 
-    setToastMsg(m); 
-    setTimeout(() => setToastMsg(""), 3000); 
+  function toast(m) {
+    setToastMsg(m);
+    setTimeout(() => setToastMsg(""), 3000);
   }
 
   useEffect(() => {
@@ -35,7 +35,6 @@ export function GerenciarCategorias({ token, onCategoriasChange }) {
       toast("Preencha o nome da categoria");
       return;
     }
-
     const obj = {
       tipo: form.tipo,
       nome: form.nome.trim(),
@@ -44,7 +43,6 @@ export function GerenciarCategorias({ token, onCategoriasChange }) {
       ativo: true,
       ordem: categorias.filter(c => c.tipo === form.tipo).length + 1
     };
-
     try {
       if (editando) {
         await sb("/categorias?id=eq." + editando.id, { method: "PATCH", token, body: obj });
@@ -57,7 +55,6 @@ export function GerenciarCategorias({ token, onCategoriasChange }) {
       if (onCategoriasChange) onCategoriasChange();
       fecharModal();
     } catch (e) {
-      console.error('Erro:', e);
       toast("Erro: " + e.message);
     }
   }
@@ -89,13 +86,7 @@ export function GerenciarCategorias({ token, onCategoriasChange }) {
   function abrirModal(cat = null) {
     if (cat) {
       setEditando(cat);
-      setForm({
-        tipo: cat.tipo,
-        nome: cat.nome,
-        classificacao: cat.classificacao,
-        icone: cat.icone || "ti-tag",
-        ativo: cat.ativo
-      });
+      setForm({ tipo: cat.tipo, nome: cat.nome, classificacao: cat.classificacao, icone: cat.icone || "ti-tag", ativo: cat.ativo });
     } else {
       setEditando(null);
       setForm({ ...CATEGORIA_BLANK });
@@ -126,12 +117,12 @@ export function GerenciarCategorias({ token, onCategoriasChange }) {
           {toastMsg}
         </div>
       )}
-      
+
       <div style={styles.card}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
           <div>
             <div style={{ fontWeight: 600, fontSize: 14, color: C.navy }}>Gerenciar Categorias</div>
-            <div style={{ fontSize: 11, color: C.grayD }}>Adicione, edite ou desative categorias de receitas e despesas</div>
+            <div style={{ fontSize: 11, color: C.grayD }}>Adicione, edite ou desative categorias</div>
           </div>
           <button onClick={() => abrirModal()} style={{ ...styles.buttonSuccess, gap: 6 }}>
             <i className="ti ti-plus" style={{ fontSize: 14 }} />
@@ -159,9 +150,8 @@ export function GerenciarCategorias({ token, onCategoriasChange }) {
         ) : (
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(300px,1fr))", gap: 16 }}>
             <div style={{ background: C.slate, borderRadius: 12, padding: 12 }}>
-              <div style={{ fontWeight: 600, fontSize: 13, color: C.green, marginBottom: 12, display: "flex", alignItems: "center", gap: 6 }}>
-                <i className="ti ti-trending-up" />
-                Receitas ({categoriasReceita.length})
+              <div style={{ fontWeight: 600, fontSize: 13, color: C.green, marginBottom: 12 }}>
+                <i className="ti ti-trending-up" /> Receitas ({categoriasReceita.length})
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                 {categoriasReceita.map(cat => (
@@ -169,9 +159,7 @@ export function GerenciarCategorias({ token, onCategoriasChange }) {
                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                       <i className={cat.icone || "ti-tag"} style={{ fontSize: 14, color: C.green }} />
                       <span style={{ fontSize: 12, fontWeight: 500 }}>{cat.nome}</span>
-                      <span style={{ fontSize: 10, padding: "2px 6px", borderRadius: 99, background: cat.classificacao === "fixa" ? C.navy + "20" : C.purple + "20", color: cat.classificacao === "fixa" ? C.navy : C.purple }}>
-                        {cat.classificacao}
-                      </span>
+                      <span style={{ fontSize: 10, padding: "2px 6px", borderRadius: 99, background: cat.classificacao === "fixa" ? C.navy + "20" : C.purple + "20", color: cat.classificacao === "fixa" ? C.navy : C.purple }}>{cat.classificacao}</span>
                     </div>
                     <div style={{ display: "flex", gap: 4 }}>
                       <button onClick={() => abrirModal(cat)} style={styles.buttonIcon}><i className="ti ti-edit" style={{ fontSize: 12, color: C.navy }} /></button>
@@ -183,9 +171,8 @@ export function GerenciarCategorias({ token, onCategoriasChange }) {
             </div>
 
             <div style={{ background: C.slate, borderRadius: 12, padding: 12 }}>
-              <div style={{ fontWeight: 600, fontSize: 13, color: C.red, marginBottom: 12, display: "flex", alignItems: "center", gap: 6 }}>
-                <i className="ti ti-trending-down" />
-                Despesas ({categoriasDespesa.length})
+              <div style={{ fontWeight: 600, fontSize: 13, color: C.red, marginBottom: 12 }}>
+                <i className="ti ti-trending-down" /> Despesas ({categoriasDespesa.length})
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                 {categoriasDespesa.map(cat => (
@@ -193,9 +180,7 @@ export function GerenciarCategorias({ token, onCategoriasChange }) {
                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                       <i className={cat.icone || "ti-tag"} style={{ fontSize: 14, color: C.red }} />
                       <span style={{ fontSize: 12, fontWeight: 500 }}>{cat.nome}</span>
-                      <span style={{ fontSize: 10, padding: "2px 6px", borderRadius: 99, background: cat.classificacao === "fixa" ? C.navy + "20" : C.purple + "20", color: cat.classificacao === "fixa" ? C.navy : C.purple }}>
-                        {cat.classificacao}
-                      </span>
+                      <span style={{ fontSize: 10, padding: "2px 6px", borderRadius: 99, background: cat.classificacao === "fixa" ? C.navy + "20" : C.purple + "20", color: cat.classificacao === "fixa" ? C.navy : C.purple }}>{cat.classificacao}</span>
                     </div>
                     <div style={{ display: "flex", gap: 4 }}>
                       <button onClick={() => abrirModal(cat)} style={styles.buttonIcon}><i className="ti ti-edit" style={{ fontSize: 12, color: C.navy }} /></button>
@@ -230,7 +215,6 @@ export function GerenciarCategorias({ token, onCategoriasChange }) {
               <h3 style={{ fontSize: 18, fontWeight: 600, color: C.navy, margin: 0 }}>{editando ? "Editar Categoria" : "Nova Categoria"}</h3>
               <button onClick={fecharModal} style={styles.buttonIcon}><i className="ti ti-x" style={{ fontSize: 20, color: C.grayD }} /></button>
             </div>
-
             <div style={{ marginBottom: 12 }}>
               <label style={styles.label}>Tipo</label>
               <select value={form.tipo} onChange={(e) => setForm(f => ({ ...f, tipo: e.target.value }))} style={styles.input}>
@@ -238,31 +222,23 @@ export function GerenciarCategorias({ token, onCategoriasChange }) {
                 <option value="despesa">Despesa</option>
               </select>
             </div>
-
             <div style={{ marginBottom: 12 }}>
-              <label style={styles.label}>Nome da Categoria</label>
-              <input type="text" value={form.nome} onChange={(e) => setForm(f => ({ ...f, nome: e.target.value }))} placeholder="Ex: Academia, Streaming, ..." style={styles.input} />
+              <label style={styles.label}>Nome</label>
+              <input type="text" value={form.nome} onChange={(e) => setForm(f => ({ ...f, nome: e.target.value }))} placeholder="Ex: Academia, Streaming..." style={styles.input} />
             </div>
-
             <div style={{ marginBottom: 12 }}>
               <label style={styles.label}>Classificação</label>
               <select value={form.classificacao} onChange={(e) => setForm(f => ({ ...f, classificacao: e.target.value }))} style={styles.input}>
-                <option value="fixa">Fixa (mensal previsível)</option>
-                <option value="variavel">Variável (valor pode mudar)</option>
+                <option value="fixa">Fixa</option>
+                <option value="variavel">Variável</option>
               </select>
             </div>
-
             <div style={{ marginBottom: 20 }}>
               <label style={styles.label}>Ícone</label>
               <select value={form.icone} onChange={(e) => setForm(f => ({ ...f, icone: e.target.value }))} style={styles.input}>
-                {ICONES.map(icone => (
-                  <option key={icone} value={icone}>
-                    {icone.replace("ti-", "")}
-                  </option>
-                ))}
+                {ICONES.map(icone => <option key={icone} value={icone}>{icone.replace("ti-", "")}</option>)}
               </select>
             </div>
-
             <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
               <button onClick={fecharModal} style={{ ...styles.buttonPrimary, background: C.grayD }}>Cancelar</button>
               <button onClick={salvarCategoria} style={styles.buttonSuccess}>Salvar</button>
