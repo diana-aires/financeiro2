@@ -1,223 +1,250 @@
-import { useState } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { C, styles } from '../../styles/theme';
 import { fmt } from '../../utils/formatters';
 import { Bar } from '../Common/Bar';
-import { ImportFaturaModal } from './ImportFaturaModal';
-import { sb } from '../../services/supabase';
+import { ImportFaturaModal } from '../Cartao/ImportFaturaModal'; // CORRIGIDO: era './ImportFaturaModal' (não existe) → '../Cartao/ImportFaturaModal'
+import sb from '../../services/supabase'; // CORRIGIDO: era `import { sb }` → default export
+import { Header } from '../Common/Header';
+import { Loading } from '../Common/Loading';
+import { Toast } from '../Common/Toast';
+import { LancamentosScreen } from '../Lancamentos/LancamentosScreen';
+import { CartaoScreen } from '../Cartao/CartaoScreen';
+import { MetasScreen } from '../Metas/MetasScreen';
+import { GerenciarCategorias } from '../Categorias/GerenciarCategorias';
+import { IAScreen } from '../IA/IAScreen';
+import { CATS_R, CATS_D, METAS_DEF, CARTOES } from '../../utils/constants';
 
-export function CartaoScreen({ lancamentos, token, session, cartoes, setCartoes, toast, onLancamentosUpdate, onCartoesUpdate }) {
-  const [showImportModal, setShowImportModal] = useState(false);
-  
-  const parceladosAtivos = lancamentos.filter(l => 
-    l.parcelas && 
-    l.parcelas > 0 && 
-    l.parcela_atual && 
-    l.parcela_atual <= l.parcelas
-  );
-  
-  const porCartao = parceladosAtivos.reduce((acc, l) => {
-    const cartao = l.cartao || "Sem cartão";
-    if (!acc[cartao]) acc[cartao] = [];
-    acc[cartao].push(l);
-    return acc;
-  }, {});
-  
-  const totalMensal = parceladosAtivos.reduce((s, l) => s + Number(l.valor), 0);
-  
-  const marcarParcelaPaga = async (l, pa, pt) => {
-    try {
-      await sb("/lancamentos?id=eq." + l.id, {
-        method: "PATCH",
-        token,
-        body: { parcela_atual: pa + 1 }
-      });
-      onLancamentosUpdate();
-      toast(`✅ Parcela ${pa}/${pt} paga!`);
-    } catch (err) {
-      toast("❌ Erro ao atualizar parcela");
-    }
-  };
-  
-  const removerParcelamento = (id) => {
-    if (window.confirm(`Remover este parcelamento?`)) {
-      sb("/lancamentos?id=eq." + id, { method: "DELETE", token }).then(() => {
-        onLancamentosUpdate();
-        toast("Removido.");
-      }).catch(() => toast("Erro ao remover"));
-    }
-  };
-  
-  const handleAdicionarCartao = () => {
-    let novoCartao = prompt("Digite o nome do novo cartão:", "");
-    if (novoCartao && novoCartao.trim()) {
-      novoCartao = novoCartao.trim();
-      if (!cartoes.includes(novoCartao)) {
-        sb("/cartoes", { 
-          method: "POST", 
-          token, 
-          body: { nome: novoCartao, user_id: session?.user?.id, ativo: true }
-        }).then(async () => {
-          if (onCartoesUpdate) await onCartoesUpdate();
-          setCartoes([...cartoes, novoCartao]);
-          toast(`✅ Cartão "${novoCartao}" adicionado!`);
-        }).catch(() => toast("❌ Erro ao salvar cartão"));
-      } else {
-        toast(`⚠️ Cartão "${novoCartao}" já existe!`);
+// CORRIGIDO: função era `CartaoScreen` neste arquivo — renomeada para `Dashboard`
+export function Dashboard({ session, onLogout }) {
+  const [aba, setAba] = useState("dashboard");
+  const [lanc, setLanc] = useState([]);
+  const [metas, setMetas] = useState([]);
+  const [categorias, setCategorias] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [toastMsg, setToastMsg] = useState("");
+  const [cartoes, setCartoes] = useState(CARTOES);
+
+  const token = session?.access_token;
+  const uid = session?.user?.id;
+
+  function toast(m) {
+    setToastMsg(m);
+    setTimeout(() => setToastMsg(""), 3000);
+  }
+
+  useEffect(() => {
+    if (!token) return;
+    setLoading(true);
+
+    Promise.all([
+      sb("/categorias?order=ordem.asc", { token }),
+      sb("/lancamentos?order=data_vencimento.desc", { token }),
+      sb("/metas?order=id.asc", { token }),
+      sb("/cartoes?select=nome&user_id=eq." + uid + "&ativo=eq.true", { token })
+    ]).then(([cats, lancs, metasData, cartoesData]) => {
+      if (Array.isArray(cats)) setCategorias(cats);
+      if (Array.isArray(lancs)) setLanc(lancs);
+      if (Array.isArray(metasData)) setMetas(metasData);
+      if (Array.isArray(cartoesData) && cartoesData.length > 0) {
+        setCartoes(cartoesData.map(c => c.nome));
       }
-    }
-  };
-  
-  return (
-    <div style={{ animation: "fadeUp .4s ease" }}>
-      <div style={{ ...styles.card, marginBottom: 14 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-          <div>
-            <div style={{ fontWeight: 600, fontSize: 14, color: C.navy }}>Parcelas no cartão</div>
-            <div style={{ fontSize: 12, color: C.grayD }}>Acompanhamento de compras parceladas</div>
-          </div>
-          <div style={{ display: "flex", gap: 8 }}>
-            <button 
-              onClick={() => setShowImportModal(true)}
-              style={{ ...styles.buttonPrimary, gap: 6, background: C.purple }}
-            >
-              <i className="ti ti-file-import" style={{ fontSize: 14 }} />
-              Importar Fatura PDF
-            </button>
-            <button 
-              onClick={handleAdicionarCartao}
-              style={{ ...styles.buttonSuccess, gap: 6 }}
-            >
-              <i className="ti ti-plus" style={{ fontSize: 14 }} />
-              Novo Cartão
-            </button>
-          </div>
-        </div>
-      </div>
+      if (!metasData || metasData.length === 0) {
+        METAS_DEF.forEach((m) => {
+          sb("/metas", { method: "POST", token, body: { ...m, user_id: uid } });
+        });
+      }
+    }).catch((e) => {
+      console.error('❌ Erro:', e);
+      toast("Erro: " + e.message);
+    }).finally(() => setLoading(false));
+  }, [token, uid]);
 
-      {parceladosAtivos.length === 0 ? (
-        <div style={{ ...styles.card, textAlign: "center", padding: "2rem", color: C.grayD }}>
-          <i className="ti ti-credit-card" style={{ fontSize: 48, display: "block", marginBottom: 12, opacity: 0.5 }} />
-          <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 8 }}>Nenhuma parcela ativa</div>
-          <div style={{ fontSize: 12 }}>Adicione compras parceladas nos lançamentos para ver o acompanhamento aqui.</div>
-        </div>
-      ) : (
-        <>
-          <div style={{ ...styles.card, marginBottom: 16, background: "linear-gradient(135deg, " + C.navy + "08, " + C.purple + "08)" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 16 }}>
-              <div>
-                <div style={{ fontSize: 12, color: C.grayD, marginBottom: 4 }}>Total por mês</div>
-                <div style={{ fontSize: 24, fontWeight: 700, color: C.navy }}>{fmt(totalMensal)}</div>
-              </div>
-              <div>
-                <div style={{ fontSize: 12, color: C.grayD, marginBottom: 4 }}>Parcelas ativas</div>
-                <div style={{ fontSize: 24, fontWeight: 700, color: C.purple }}>{parceladosAtivos.length}</div>
-              </div>
-            </div>
-          </div>
-          
-          {Object.entries(porCartao).map(([cartao, items]) => (
-            <div key={cartao} style={{ ...styles.card, marginBottom: 16 }}>
-              <div style={{ 
-                display: "flex", 
-                justifyContent: "space-between", 
-                alignItems: "center", 
-                marginBottom: 16,
-                paddingBottom: 12,
-                borderBottom: "2px solid " + C.border
-              }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <div style={{ width: 40, height: 40, borderRadius: 10, background: C.navy + "12", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                    <i className="ti ti-credit-card" style={{ fontSize: 20, color: C.navy }} />
-                  </div>
-                  <div>
-                    <div style={{ fontWeight: 700, fontSize: 16, color: C.navy }}>{cartao}</div>
-                    <div style={{ fontSize: 11, color: C.grayD }}>{items.length} parcela(s)</div>
-                  </div>
-                </div>
-                <div style={{ fontSize: 18, fontWeight: 700, color: C.navy }}>
-                  {fmt(items.reduce((s, l) => s + Number(l.valor), 0))}
-                  <span style={{ fontSize: 11, fontWeight: 400, color: C.grayD, marginLeft: 4 }}>/mês</span>
-                </div>
-              </div>
-              
-              <div style={{ overflowX: "auto" }}>
-                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-                  <thead>
-                    <tr style={{ borderBottom: "2px solid " + C.border, background: C.slate }}>
-                      <th style={{ textAlign: "left", padding: "10px", fontWeight: 600, color: C.grayD }}>Descrição</th>
-                      <th style={{ textAlign: "center", padding: "10px", fontWeight: 600, color: C.grayD }}>Parcela</th>
-                      <th style={{ textAlign: "left", padding: "10px", fontWeight: 600, color: C.grayD }}>Progresso</th>
-                      <th style={{ textAlign: "right", padding: "10px", fontWeight: 600, color: C.grayD }}>Valor</th>
-                      <th style={{ textAlign: "right", padding: "10px", fontWeight: 600, color: C.grayD }}>Restante</th>
-                      <th style={{ textAlign: "center", padding: "10px", fontWeight: 600, color: C.grayD }}>Ações</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {items.map((l, idx) => {
-                      const pa = l.parcela_atual || 1;
-                      const pt = l.parcelas || 1;
-                      const pct = (pa / pt) * 100;
-                      const rest = (pt - pa) * Number(l.valor);
-                      const concluida = pa >= pt;
-                      
-                      return (
-                        <tr key={l.id} style={{ 
-                          borderBottom: idx === items.length - 1 ? "none" : "1px solid " + C.border,
-                          opacity: concluida ? 0.6 : 1,
-                          background: concluida ? C.green + "08" : "transparent"
-                        }}>
-                          <td style={{ padding: "12px 10px", fontWeight: 500 }}>
-                            {l.descricao}
-                            {concluida && (
-                              <span style={{ marginLeft: 8, fontSize: 10, padding: "2px 6px", borderRadius: 99, background: C.green + "20", color: C.green }}>
-                                Concluída
-                              </span>
-                            )}
-                          </td>
-                          <td style={{ padding: "12px 10px", textAlign: "center", fontWeight: 600, color: C.navy }}>{pa}/{pt}</td>
-                          <td style={{ padding: "12px 10px", minWidth: 150 }}>
-                            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                              <div style={{ flex: 1 }}><Bar pct={pct} color={concluida ? C.green : C.purple} /></div>
-                              <span style={{ fontSize: 11, fontWeight: 500, minWidth: 45, color: concluida ? C.green : C.purple }}>{Math.round(pct)}%</span>
-                            </div>
-                          </td>
-                          <td style={{ padding: "12px 10px", textAlign: "right", fontWeight: 600, color: C.red }}>{fmt(l.valor)}</td>
-                          <td style={{ padding: "12px 10px", textAlign: "right", color: concluida ? C.green : C.grayD }}>
-                            {concluida ? "✓ Pago" : `${fmt(rest)} (${pt - pa}x)`}
-                          </td>
-                          <td style={{ padding: "12px 10px", textAlign: "center", whiteSpace: "nowrap" }}>
-                            {!concluida && (
-                              <button onClick={() => marcarParcelaPaga(l, pa, pt)} style={styles.buttonIcon} title="Marcar como paga">
-                                <i className="ti ti-check" style={{ fontSize: 16, color: C.green }} />
-                              </button>
-                            )}
-                            <button onClick={() => removerParcelamento(l.id)} style={styles.buttonIcon} title="Remover">
-                              <i className="ti ti-trash" style={{ fontSize: 16, color: C.red }} />
-                            </button>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          ))}
-        </>
-      )}
-      
-      {showImportModal && (
-        <ImportFaturaModal 
-          isOpen={showImportModal}
-          onClose={() => setShowImportModal(false)}
-          onImport={() => {
-            onLancamentosUpdate();
-            toast("📥 Lançamentos importados com sucesso!");
-          }}
-          token={token}
-          uid={session?.user?.id}
-        />
-      )}
+  const safeLanc = useMemo(() => Array.isArray(lanc) ? lanc : [], [lanc]);
+  const safeMetas = useMemo(() => Array.isArray(metas) ? metas : [], [metas]);
+
+  const catsRFromDB = categorias.filter(c => c.tipo === "receita" && c.ativo).map(c => c.nome);
+  const catsDFromDB = categorias.filter(c => c.tipo === "despesa" && c.ativo).map(c => c.nome);
+  const catsRList = catsRFromDB.length > 0 ? catsRFromDB : CATS_R;
+  const catsDList = catsDFromDB.length > 0 ? catsDFromDB : CATS_D;
+
+  const rec = safeLanc.filter((l) => l?.tipo === "receita");
+  const desp = safeLanc.filter((l) => l?.tipo === "despesa");
+  const tR = rec.reduce((s, l) => s + Number(l?.valor || 0), 0);
+  const tD = desp.reduce((s, l) => s + Number(l?.valor || 0), 0);
+  const saldo = tR - tD;
+  const inv = desp.filter((l) => l?.cat === "Investimento").reduce((s, l) => s + Number(l?.valor || 0), 0);
+  const fin = desp.filter((l) => l?.cat === "Financiamento").reduce((s, l) => s + Number(l?.valor || 0), 0);
+
+  const recarregarLancamentos = async () => {
+    const updated = await sb("/lancamentos?order=data_vencimento.desc", { token });
+    if (Array.isArray(updated)) setLanc(updated);
+  };
+
+  const recarregarMetas = async () => {
+    const updated = await sb("/metas?order=id.asc", { token });
+    if (Array.isArray(updated)) setMetas(updated);
+  };
+
+  if (loading) return <Loading />;
+
+  return (
+    <div style={{ background: C.slate, minHeight: "100vh", color: "#1E293B" }}>
+      <Toast message={toastMsg} />
+      <Header session={session} aba={aba} setAba={setAba} onLogout={onLogout} />
+      <div style={{ maxWidth: 1100, margin: "0 auto", padding: "1.25rem" }}>
+
+        {aba === "dashboard" && (
+          <DashboardContent
+            tR={tR} tD={tD} saldo={saldo} inv={inv} fin={fin}
+            rec={rec} desp={desp} metas={safeMetas} setAba={setAba}
+          />
+        )}
+
+        {aba === "lancamentos" && (
+          <LancamentosScreen
+            lancamentos={safeLanc}
+            categorias={categorias}
+            catsRList={catsRList}
+            catsDList={catsDList}
+            token={token}
+            uid={uid}
+            cartoes={cartoes}
+            setCartoes={setCartoes}
+            toast={toast}
+            onLancamentosUpdate={recarregarLancamentos}
+          />
+        )}
+
+        {aba === "cartao" && (
+          <CartaoScreen
+            lancamentos={safeLanc}
+            token={token}
+            session={session}
+            cartoes={cartoes}
+            setCartoes={setCartoes}
+            toast={toast}
+            onLancamentosUpdate={recarregarLancamentos}
+          />
+        )}
+
+        {aba === "metas" && (
+          <MetasScreen
+            metas={safeMetas}
+            token={token}
+            uid={uid}
+            toast={toast}
+            onMetasUpdate={recarregarMetas}
+          />
+        )}
+
+        {aba === "categorias" && (
+          <GerenciarCategorias
+            token={token}
+            onCategoriasChange={() => {
+              sb("/categorias?order=ordem.asc", { token })
+                .then(data => Array.isArray(data) && setCategorias(data));
+            }}
+          />
+        )}
+
+        {aba === "ia" && (
+          <IAScreen
+            lancamentos={safeLanc}
+            tR={tR}
+            tD={tD}
+            saldo={saldo}
+          />
+        )}
+      </div>
     </div>
   );
 }
+
+function DashboardContent({ tR, tD, saldo, inv, fin, rec, desp, metas, setAba }) {
+  const rF = rec.filter((l) => l?.cat === "Salário CLT").reduce((s, l) => s + Number(l?.valor || 0), 0);
+  const rV = rec.filter((l) => l?.cat !== "Salário CLT").reduce((s, l) => s + Number(l?.valor || 0), 0);
+  const dF = desp.filter((l) => ["Aluguel", "Energia", "Internet", "Telefone", "Assinaturas"].includes(l?.cat)).reduce((s, l) => s + Number(l?.valor || 0), 0);
+
+  const txP = tR > 0 ? saldo / tR : 0;
+  const dC = tR > 0 ? rF / tR : 0;
+  const cFx = tR > 0 ? dF / tR : 0;
+
+  const coresMap = { navy: C.navy, green: C.green, purple: C.purple, amber: C.amber, teal: C.teal, orange: C.orange, red: C.red };
+
+  return (
+    <div style={{ animation: "fadeUp .4s ease" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(140px,1fr))", gap: 10, marginBottom: 14 }}>
+        {[
+          { label: "Receita", value: tR, color: C.green },
+          { label: "Despesas", value: tD, color: C.red },
+          { label: "Saldo", value: saldo, color: saldo >= 0 ? C.navy : C.red },
+          { label: "Investido", value: inv, color: C.purple },
+          { label: "Financiamento", value: fin, color: C.amber }
+        ].map((k) => (
+          <div key={k.label} style={{ ...styles.card, borderTop: "3px solid " + k.color, padding: "1rem" }}>
+            <div style={{ fontSize: 10, fontWeight: 600, color: C.grayD, textTransform: "uppercase", marginBottom: 6 }}>{k.label}</div>
+            <div style={{ fontSize: 18, fontWeight: 700, color: k.color }}>{fmt(k.value)}</div>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(260px,1fr))", gap: 10, marginBottom: 14 }}>
+        <div style={styles.card}>
+          <div style={{ fontWeight: 600, fontSize: 13, color: C.navy, marginBottom: 12 }}>Receita</div>
+          {[["Fixa (CLT)", rF, C.navy], ["Variável", rV, C.green]].map(([label, value, color]) => (
+            <div key={label} style={{ marginBottom: 10 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 4 }}>
+                <span style={{ color: C.grayD }}>{label}</span>
+                <span style={{ fontWeight: 600, color }}>{tR > 0 ? ((value / tR) * 100).toFixed(1) : 0}%</span>
+              </div>
+              <Bar pct={tR > 0 ? (value / tR) * 100 : 0} color={color} />
+            </div>
+          ))}
+        </div>
+
+        <div style={styles.card}>
+          <div style={{ fontWeight: 600, fontSize: 13, color: C.navy, marginBottom: 12 }}>Indicadores</div>
+          {[
+            { label: "Poupança", value: txP, ok: txP >= 0.2 },
+            { label: "CLT", value: dC, ok: dC <= 0.7 },
+            { label: "Fixas", value: cFx, ok: cFx <= 0.5 }
+          ].map((k) => (
+            <div key={k.label} style={{ display: "flex", alignItems: "center", padding: "5px 0", borderBottom: "1px solid " + C.border }}>
+              <span style={{ flex: 1, fontSize: 12, color: C.grayD }}>{k.label}</span>
+              <span style={{ fontSize: 12, fontWeight: 600, color: k.ok ? C.green : C.amber }}>{(k.value * 100).toFixed(1)}%</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div style={styles.card}>
+        <div style={{ fontWeight: 600, fontSize: 13, color: C.navy, marginBottom: 12 }}>Metas</div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))", gap: 10 }}>
+          {metas.slice(0, 3).map((m) => {
+            const p = Math.min(100, (m.atual / m.valor) * 100);
+            const corMeta = coresMap[m.cor] || C.navy;
+            return (
+              <div key={m.id} style={{ background: C.slate, borderRadius: 10, padding: 10, border: "1px solid " + C.border }}>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
+                  <span style={{ fontSize: 11, fontWeight: 600, color: corMeta }}>{m.nome}</span>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: p >= 100 ? C.green : corMeta }}>{Math.round(p)}%</span>
+                </div>
+                <Bar pct={p} color={p >= 100 ? C.green : corMeta} />
+                <div style={{ fontSize: 10, color: C.grayD, marginTop: 4 }}>{fmt(m.atual)} / {fmt(m.valor)}</div>
+              </div>
+            );
+          })}
+          {metas.length > 3 && (
+            <div style={{ background: C.slate, borderRadius: 10, padding: 10, border: "1px solid " + C.border, display: "flex", alignItems: "center", justifyContent: "center", minHeight: 80 }}>
+              <button onClick={() => setAba("metas")} style={{ fontSize: 11, color: C.navy, background: "none", border: "none", cursor: "pointer", fontWeight: 500 }}>
+                + {metas.length - 3} outras metas
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default Dashboard;
