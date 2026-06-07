@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { supabase } from '../../lib/supabase'; // Ajuste o caminho conforme sua configuração
+import { sb } from '../../services/supabase';
 import { C, styles } from '../../styles/theme';
 import { CARTOES } from '../../utils/constants';
 
