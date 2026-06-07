@@ -565,7 +565,7 @@ function toastError(message) {
 /* ════ DASHBOARD COM PROTEÇÃO RADICAL ════ */
 /* ════ DASHBOARD COMPLETO ════ */
 function Dashboard({ session, onLogout }) {
-  // ========== ESTADOS ==========
+  // ========== 1. TODOS OS STATES PRIMEIRO ==========
   const [aba, setAba] = useState("dashboard");
   const [lanc, setLanc] = useState([]);
   const [metas, setMetas] = useState([]);
@@ -586,25 +586,17 @@ function Dashboard({ session, onLogout }) {
   const [metaEditando, setMetaEditando] = useState(null);
   const [metaForm, setMetaForm] = useState({ nome: "", valor: 0, atual: 0, prazo: "", cor: "navy" });
 
-  // ========== FUNÇÕES DE TOAST ==========
+  // ========== 2. FUNÇÕES DE TOAST ==========
   function toast(message, type = "success") {
     setToastMsg(message);
     setToastType(type);
-    setTimeout(() => {
-      setToastMsg("");
-      setToastType("success");
-    }, 3000);
+    setTimeout(() => setToastMsg(""), 3000);
   }
 
-  function toastError(message) {
-    toast(message, "error");
-  }
-
-  // ========== VARIÁVEIS DERIVADAS (SEGURAS) ==========
+  // ========== 3. VARIÁVEIS DERIVADAS (safeLanc, safeMetas) ==========
   const token = session?.access_token;
   const uid = session?.user?.id;
 
-  // 🔧 IMPORTANTE: safeLanc e safeMetas precisam ser declarados ANTES de serem usados
   const safeLanc = useMemo(() => {
     if (!lanc) return [];
     if (!Array.isArray(lanc)) return [];
@@ -617,7 +609,10 @@ function Dashboard({ session, onLogout }) {
     return metas;
   }, [metas]);
 
-  // ========== CATEGORIAS ==========
+  // Para facilitar, criar um alias
+  const lancamentos = safeLanc;
+
+  // ========== 4. CATEGORIAS DINÂMICAS ==========
   const catsRFromDB = categorias.filter(c => c.tipo === "receita" && c.ativo).map(c => c.nome);
   const catsDFromDB = categorias.filter(c => c.tipo === "despesa" && c.ativo).map(c => c.nome);
   const catsRList = catsRFromDB.length > 0 ? catsRFromDB : CATS_R;
@@ -632,7 +627,7 @@ function Dashboard({ session, onLogout }) {
   const TIPO_R_DINAMICO = Object.keys(tipoRFromDB).length > 0 ? tipoRFromDB : TIPO_R;
   const TIPO_D_DINAMICO = Object.keys(tipoDFromDB).length > 0 ? tipoDFromDB : TIPO_D;
 
-  // ========== CALCULAR DATA VENCIMENTO ==========
+  // ========== 5. FUNÇÕES AUXILIARES ==========
   const calcularDataVencimento = (dataCompra, parcelaAtual) => {
     if (!dataCompra || !parcelaAtual) return dataCompra;
     const data = new Date(dataCompra);
@@ -640,7 +635,7 @@ function Dashboard({ session, onLogout }) {
     return data.toISOString().split("T")[0];
   };
 
-  // ========== CARREGAR DADOS ==========
+  // ========== 6. LOADING E CARREGAMENTO ==========
   useEffect(() => {
     if (!token) return;
     setLoading(true);
@@ -653,21 +648,13 @@ function Dashboard({ session, onLogout }) {
       if (Array.isArray(cats)) setCategorias(cats);
       if (Array.isArray(lancs)) setLanc(lancs);
       if (Array.isArray(metasData)) setMetas(metasData);
-      
-      if (!metasData || metasData.length === 0) {
-        sb("/metas", { method: "POST", token, body: METAS_DEF.map((m) => ({ ...m, user_id: uid })) })
-          .then((d) => {
-            if (Array.isArray(d)) setMetas(d);
-          })
-          .catch(() => {});
-      }
     }).catch((e) => {
-      console.error('❌ Erro no carregamento:', e);
+      console.error('❌ Erro:', e);
       toast("Erro: " + e.message, "error");
     }).finally(() => setLoading(false));
-  }, [token, uid]);
+  }, [token]);
 
-  // ========== DEBUG (opcional) ==========
+  // ========== 7. DEBUG (AGORA safeLanc JÁ EXISTE) ==========
   useEffect(() => {
     console.log('🚀 Dashboard inicializado');
     console.log('📊 Estado atual:', {
@@ -677,8 +664,6 @@ function Dashboard({ session, onLogout }) {
     });
   }, [safeLanc.length, safeMetas.length, categorias.length]);
 
-  // ========== RENOMEAR safeLanc para uso no JSX ==========
-  // Isso permite usar 'lancamentos' em vez de 'safeLanc' no JSX
   const lancamentos = safeLanc;
   
   // Salvar meta (criar ou editar)
