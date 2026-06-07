@@ -9,25 +9,28 @@ export function IAScreen({ lancamentos, tR, tD, saldo }) {
 
   async function askAI() {
     if (!aiQ.trim()) return;
-    setAiLoad(true); 
+    setAiLoad(true);
     setAiResp("");
     const sys = `Consultor financeiro. Receita ${fmt(tR)}, despesas ${fmt(tD)}, saldo ${fmt(saldo)}. Responda em português, máx 3 parágrafos.`;
-    try { 
-      const r = await fetch("https://api.anthropic.com/v1/messages", { 
-        method: "POST", 
-        headers: { "Content-Type": "application/json" }, 
-        body: JSON.stringify({ 
-          model: "claude-3-sonnet-20241022", 
-          max_tokens: 1000, 
-          system: sys, 
-          messages: [{ role: "user", content: aiQ }] 
-        }) 
-      }); 
-      const d = await r.json(); 
-      setAiResp(d.content?.[0]?.text || "Sem resposta."); 
-    } catch (e) { 
+    try {
+      const r = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "anthropic-dangerous-direct-browser-access": "true", // CORRIGIDO: header obrigatório para chamadas diretas do browser
+        },
+        body: JSON.stringify({
+          model: "claude-sonnet-4-20250514", // CORRIGIDO: era "claude-3-sonnet-20241022" (ID inválido)
+          max_tokens: 1000,
+          system: sys,
+          messages: [{ role: "user", content: aiQ }]
+        })
+      });
+      const d = await r.json();
+      setAiResp(d.content?.[0]?.text || "Sem resposta.");
+    } catch (e) {
       console.error('Erro na IA:', e);
-      setAiResp("Erro: " + e.message); 
+      setAiResp("Erro: " + e.message);
     }
     setAiLoad(false);
   }
@@ -36,11 +39,11 @@ export function IAScreen({ lancamentos, tR, tD, saldo }) {
 
   return (
     <div style={{ animation: "fadeUp .4s ease" }}>
-      <div style={styles.card}>
+      <div style={{ ...styles.card, marginBottom: 12 }}>
         <div style={{ fontWeight: 600, fontSize: 14, color: C.navy }}>Consultora IA</div>
         <div style={{ fontSize: 11, color: C.grayD }}>{lancamentos.length} lançamentos</div>
       </div>
-      
+
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12 }}>
         {sugestoes.map((s) => (
           <button key={s} onClick={() => setAiQ(s)} style={{ fontSize: 11, padding: "6px 12px", borderRadius: 18, border: "1px solid " + C.border, cursor: "pointer", background: C.white, color: C.navy, fontWeight: 500 }}>
@@ -48,15 +51,22 @@ export function IAScreen({ lancamentos, tR, tD, saldo }) {
           </button>
         ))}
       </div>
-      
-      <div style={{ ...styles.card, display: "flex", gap: 8 }}>
-        <input type="text" placeholder="Pergunte..." value={aiQ} onChange={(e) => setAiQ(e.target.value)} onKeyDown={(e) => e.key === "Enter" && !aiLoad && askAI()} style={{ ...styles.input, flex: 1, borderRadius: 10, padding: "10px 14px" }} />
+
+      <div style={{ ...styles.card, marginBottom: 12, display: "flex", gap: 8 }}>
+        <input
+          type="text"
+          placeholder="Pergunte..."
+          value={aiQ}
+          onChange={(e) => setAiQ(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && !aiLoad && askAI()}
+          style={{ ...styles.input, flex: 1, borderRadius: 10, padding: "10px 14px" }}
+        />
         <button onClick={askAI} disabled={aiLoad || !aiQ.trim()} style={{ ...styles.buttonPrimary, borderRadius: 10, padding: "10px 18px" }}>
           {aiLoad ? <i className="ti ti-loader-2" style={{ animation: "spin 1s linear infinite" }} /> : <i className="ti ti-send" />}
           {aiLoad ? "..." : "Enviar"}
         </button>
       </div>
-      
+
       {aiResp && !aiLoad && (
         <div style={{ ...styles.card, borderLeft: "4px solid " + C.navy }}>
           <div style={{ fontSize: 13, fontWeight: 600, color: C.navy, marginBottom: 8 }}>Análise</div>
@@ -66,3 +76,4 @@ export function IAScreen({ lancamentos, tR, tD, saldo }) {
     </div>
   );
 }
+
