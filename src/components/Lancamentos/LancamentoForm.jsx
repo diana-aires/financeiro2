@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { C, styles } from '../../styles/theme';
 import { CARTOES } from '../../utils/constants';
 
@@ -5,6 +6,26 @@ export function LancamentoForm({
   form, setForm, editId, saving, showParcela, setShowParcela,
   catsRList, catsDList, cartoes, setCartoes, salvar, cancelarEdicao, toast 
 }) {
+  const [showModal, setShowModal] = useState(false);
+  const [novoCartaoNome, setNovoCartaoNome] = useState('');
+
+  const handleAdicionarCartao = () => {
+    if (novoCartaoNome && novoCartaoNome.trim()) {
+      const cartaoNome = novoCartaoNome.trim();
+      if (!cartoes.includes(cartaoNome)) {
+        setCartoes([...cartoes, cartaoNome]);
+        setForm((f) => ({ ...f, cartao: cartaoNome }));
+        toast(`✅ Cartão "${cartaoNome}" adicionado!`);
+        setShowModal(false);
+        setNovoCartaoNome('');
+      } else {
+        toast(`⚠️ Cartão "${cartaoNome}" já existe!`);
+      }
+    } else {
+      toast(`⚠️ Digite um nome válido!`);
+    }
+  };
+
   return (
     <div style={styles.card}>
       <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 12 }}>
@@ -65,19 +86,7 @@ export function LancamentoForm({
                   <option value="">Selecione</option>
                   {cartoes.map((c) => <option key={c} value={c}>{c}</option>)}
                 </select>
-                <button onClick={() => {
-                  let novoCartao = prompt("Digite o nome do novo cartão:", "");
-                  if (novoCartao && novoCartao.trim()) {
-                    novoCartao = novoCartao.trim();
-                    if (!cartoes.includes(novoCartao)) {
-                      setCartoes([...cartoes, novoCartao]);
-                      setForm((f) => ({ ...f, cartao: novoCartao }));
-                      toast(`✅ Cartão "${novoCartao}" adicionado!`);
-                    } else {
-                      toast(`⚠️ Cartão "${novoCartao}" já existe!`);
-                    }
-                  }
-                }} style={{ ...styles.buttonPrimary, padding: "6px 10px", borderRadius: 8 }} title="Adicionar novo cartão">
+                <button onClick={() => setShowModal(true)} style={{ ...styles.buttonPrimary, padding: "6px 10px", borderRadius: 8 }} title="Adicionar novo cartão">
                   <i className="ti ti-plus" style={{ fontSize: 12 }} />
                 </button>
               </div>
@@ -90,6 +99,81 @@ export function LancamentoForm({
         {saving ? <i className="ti ti-loader-2" style={{ animation: "spin 1s linear infinite" }} /> : <i className={"ti " + (editId ? "ti-check" : "ti-device-floppy")} />}
         {editId ? "Atualizar" : "Salvar"}
       </button>
+
+      {/* Modal */}
+      {showModal && (
+        <div style={{
+          position: "fixed",
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: "rgba(0, 0, 0, 0.5)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          zIndex: 1000
+        }} onClick={() => setShowModal(false)}>
+          <div style={{
+            backgroundColor: "white",
+            borderRadius: 12,
+            padding: 24,
+            width: "90%",
+            maxWidth: 400,
+            boxShadow: "0 4px 20px rgba(0,0,0,0.15)"
+          }} onClick={(e) => e.stopPropagation()}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+              <h3 style={{ margin: 0, fontSize: 18, fontWeight: 600, color: C.navy }}>Novo Cartão</h3>
+              <button onClick={() => setShowModal(false)} style={{
+                background: "none",
+                border: "none",
+                fontSize: 20,
+                cursor: "pointer",
+                color: C.gray
+              }}>✕</button>
+            </div>
+            
+            <div style={{ marginBottom: 20 }}>
+              <label style={styles.label}>Nome do Cartão</label>
+              <input 
+                type="text" 
+                value={novoCartaoNome}
+                onChange={(e) => setNovoCartaoNome(e.target.value)}
+                placeholder="Ex: Nubank, Itaú, etc."
+                style={styles.input}
+                onKeyDown={(e) => e.key === "Enter" && handleAdicionarCartao()}
+                autoFocus
+              />
+            </div>
+            
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+              <button 
+                onClick={() => setShowModal(false)}
+                style={{
+                  padding: "8px 16px",
+                  borderRadius: 6,
+                  border: "1px solid " + C.border,
+                  backgroundColor: "white",
+                  cursor: "pointer",
+                  color: C.gray
+                }}
+              >
+                Cancelar
+              </button>
+              <button 
+                onClick={handleAdicionarCartao}
+                style={{
+                  ...styles.buttonPrimary,
+                  padding: "8px 16px",
+                  borderRadius: 6
+                }}
+              >
+                Adicionar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
