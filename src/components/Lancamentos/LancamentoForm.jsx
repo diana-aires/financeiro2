@@ -1,10 +1,8 @@
-import { useState } from 'react';
-import { sb } from '../../services/supabase';
-import { supabaseConfig } from '../../config/supabase';
+import { useState, useEffect } from 'react';
+import sb from '../../services/supabase';
 import { C, styles } from '../../styles/theme';
-import { CARTOES } from '../../utils/constants';
 
-export function LancamentoForm({ 
+export default function LancamentoForm({ 
   form, setForm, editId, saving, showParcela, setShowParcela,
   catsRList, catsDList, cartoes, setCartoes, salvar, cancelarEdicao, toast, token, uid 
 }) {
@@ -12,87 +10,58 @@ export function LancamentoForm({
   const [novoCartaoNome, setNovoCartaoNome] = useState('');
   const [savingCartao, setSavingCartao] = useState(false);
 
-  const handleAdicionarCartao = async () => {
-  if (!novoCartaoNome || !novoCartaoNome.trim()) {
-    toast(`⚠️ Digite um nome válido!`);
-    return;
-  }
-
-  const cartaoNome = novoCartaoNome.trim();
-  
-  // Verificar duplicata localmente
-  if (cartoes.includes(cartaoNome)) {
-    toast(`⚠️ Cartão "${cartaoNome}" já existe!`);
-    return;
-  }
-
-  setSavingCartao(true);
-
-  try {
-    const obj = {
-      nome: cartaoNome,
-      user_id: uid,
-      ativo: true
-    };
-
-    const result = await sb("/cartoes", { 
-      method: "POST", 
-      token, 
-      body: obj 
-    });
-
-    if (result && (result.id || result.success === true)) {
-      // RECARREGAR OS CARTÕES DO BANCO
-      await carregarCartoes(); // Chamar função para recarregar
-      
-      setForm((f) => ({ ...f, cartao: cartaoNome }));
-      toast(`✅ Cartão "${cartaoNome}" adicionado com sucesso!`);
-      
-      setShowModal(false);
-      setNovoCartaoNome('');
-    } else {
-      throw new Error('Resposta inválida do servidor');
+  const carregarCartoes = async () => {
+    if (!token || !uid) return;
+    try {
+      const data = await sb(`/cartoes?select=nome&user_id=eq.${uid}&ativo=eq.true`, { token });
+      if (Array.isArray(data) && data.length > 0) {
+        setCartoes(data.map(c => c.nome));
+      }
+    } catch (error) {
+      console.error('Erro ao carregar cartões:', error);
     }
+  };
+
+  useEffect(() => {
+    if (token && uid) {
+      carregarCartoes();
+    }
+  }, [token, uid]);
+
+  const handleAdicionarCartao = async () => {
+    if (!novoCartaoNome || !novoCartaoNome.trim()) {
+      toast('⚠️ Digite um nome válido!');
+      return;
+    }
+
+    const cartaoNome = novoCartaoNome.trim();
     
-  } catch (error) {
-    console.error('Erro detalhado ao salvar cartão:', error);
-    toast(`❌ Erro ao salvar cartão: ${error.message}`);
-  } finally {
-    setSavingCartao(false);
-  }
-};
+    if (cartoes.includes(cartaoNome)) {
+      toast(`⚠️ Cartão "${cartaoNome}" já existe!`);
+      return;
+    }
+
+    setSavingCartao(true);
 
     try {
-      // Salvar no banco de dados usando a função sb()
-      const obj = {
-        nome: cartaoNome,
-        user_id: uid,
-        ativo: true,
-        created_at: new Date().toISOString()
-      };
-
       const result = await sb("/cartoes", { 
         method: "POST", 
         token, 
-        body: obj 
+        body: { nome: cartaoNome, user_id: uid, ativo: true }
       });
 
-      if (result && (result.id || result.success !== false)) {
-        // Atualizar estado local com o novo cartão
-        setCartoes([...cartoes, cartaoNome]);
+      if (result && (result.id || result.success === true)) {
+        await carregarCartoes();
         setForm((f) => ({ ...f, cartao: cartaoNome }));
-        toast(`✅ Cartão "${cartaoNome}" adicionado com sucesso!`);
-        
-        // Fechar modal e limpar campo
+        toast(`✅ Cartão "${cartaoNome}" adicionado!`);
         setShowModal(false);
         setNovoCartaoNome('');
       } else {
-        toast(`❌ Erro ao salvar cartão: Falha na resposta do servidor`);
+        throw new Error('Resposta inválida do servidor');
       }
-      
     } catch (error) {
-      console.error('Erro inesperado:', error);
-      toast(`❌ Erro inesperado ao salvar cartão: ${error.message}`);
+      console.error('Erro:', error);
+      toast(`❌ Erro: ${error.message}`);
     } finally {
       setSavingCartao(false);
     }
@@ -260,14 +229,6 @@ export function LancamentoForm({
           </div>
         </div>
       )}
-
-      {/* Adicione este style para a animação de loading */}
-      <style>{`
-        @keyframes spin {
-          from { transform: rotate(0deg); }
-          to { transform: rotate(360deg); }
-        }
-      `}</style>
     </div>
   );
 }
