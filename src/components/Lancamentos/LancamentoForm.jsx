@@ -13,20 +13,54 @@ export function LancamentoForm({
   const [savingCartao, setSavingCartao] = useState(false);
 
   const handleAdicionarCartao = async () => {
-    if (!novoCartaoNome || !novoCartaoNome.trim()) {
-      toast(`⚠️ Digite um nome válido!`);
-      return;
-    }
+  if (!novoCartaoNome || !novoCartaoNome.trim()) {
+    toast(`⚠️ Digite um nome válido!`);
+    return;
+  }
 
-    const cartaoNome = novoCartaoNome.trim();
+  const cartaoNome = novoCartaoNome.trim();
+  
+  // Verificar duplicata localmente
+  if (cartoes.includes(cartaoNome)) {
+    toast(`⚠️ Cartão "${cartaoNome}" já existe!`);
+    return;
+  }
+
+  setSavingCartao(true);
+
+  try {
+    const obj = {
+      nome: cartaoNome,
+      user_id: uid,
+      ativo: true
+    };
+
+    const result = await sb("/cartoes", { 
+      method: "POST", 
+      token, 
+      body: obj 
+    });
+
+    if (result && (result.id || result.success === true)) {
+      // RECARREGAR OS CARTÕES DO BANCO
+      await carregarCartoes(); // Chamar função para recarregar
+      
+      setForm((f) => ({ ...f, cartao: cartaoNome }));
+      toast(`✅ Cartão "${cartaoNome}" adicionado com sucesso!`);
+      
+      setShowModal(false);
+      setNovoCartaoNome('');
+    } else {
+      throw new Error('Resposta inválida do servidor');
+    }
     
-    // Verificar duplicata localmente
-    if (cartoes.includes(cartaoNome)) {
-      toast(`⚠️ Cartão "${cartaoNome}" já existe!`);
-      return;
-    }
-
-    setSavingCartao(true);
+  } catch (error) {
+    console.error('Erro detalhado ao salvar cartão:', error);
+    toast(`❌ Erro ao salvar cartão: ${error.message}`);
+  } finally {
+    setSavingCartao(false);
+  }
+};
 
     try {
       // Salvar no banco de dados usando a função sb()
