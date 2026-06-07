@@ -295,14 +295,14 @@ function toastError(message) {
 
   function toast(m) { setToastMsg(m); setTimeout(() => setToastMsg(""), 3000); }
 
-  useEffect(() => {
+ useEffect(() => {
   console.log('🚀 Dashboard inicializado');
   console.log('📊 Estado atual:', {
-    totalLancamentos: lanc.length,
-    totalMetas: metas.length,
+    totalLancamentos: safeLanc.length,
+    totalMetas: safeMetas.length,
     categoriasCount: categorias.length
   });
-}, [lanc.length, metas.length, categorias.length]);
+}, [safeLanc.length, safeMetas.length, categorias.length]);
 
   async function carregarCategorias() {
     setLoading(true);
