@@ -565,6 +565,7 @@ function toastError(message) {
 /* ════ DASHBOARD COM PROTEÇÃO RADICAL ════ */
 /* ════ DASHBOARD COMPLETO ════ */
 function Dashboard({ session, onLogout }) {
+  // ========== ESTADOS ==========
   const [aba, setAba] = useState("dashboard");
   const [lanc, setLanc] = useState([]);
   const [metas, setMetas] = useState([]);
@@ -578,34 +579,32 @@ function Dashboard({ session, onLogout }) {
   const [aiLoad, setAiLoad] = useState(false);
   const [aiQ, setAiQ] = useState("");
   const [toastMsg, setToastMsg] = useState("");
+  const [toastType, setToastType] = useState("success");
   const [showParcela, setShowParcela] = useState(false);
   const [cartoes, setCartoes] = useState(CARTOES);
-  // Estados para gerenciar metas
   const [metaModalAberto, setMetaModalAberto] = useState(false);
   const [metaEditando, setMetaEditando] = useState(null);
   const [metaForm, setMetaForm] = useState({ nome: "", valor: 0, atual: 0, prazo: "", cor: "navy" });
+
+  // ========== FUNÇÕES DE TOAST ==========
+  function toast(message, type = "success") {
+    setToastMsg(message);
+    setToastType(type);
+    setTimeout(() => {
+      setToastMsg("");
+      setToastType("success");
+    }, 3000);
+  }
+
+  function toastError(message) {
+    toast(message, "error");
+  }
+
+  // ========== VARIÁVEIS DERIVADAS (SEGURAS) ==========
   const token = session?.access_token;
   const uid = session?.user?.id;
 
-  function toast(m) { setToastMsg(m); setTimeout(() => setToastMsg(""), 3000); }
-
-  const calcularDataVencimento = (dataCompra, parcelaAtual) => {
-    if (!dataCompra || !parcelaAtual) return dataCompra;
-    const data = new Date(dataCompra);
-    data.setMonth(data.getMonth() + (parcelaAtual - 1));
-    return data.toISOString().split("T")[0];
-  };
-
-  // Carregar categorias do banco
-  useEffect(() => {
-    if (!token) return;
-    sb("/categorias?order=ordem.asc", { token })
-      .then(data => {
-        if (Array.isArray(data)) setCategorias(data);
-      })
-      .catch(err => console.error('Erro ao carregar categorias:', err));
-  }, [token]);
-
+  // 🔧 IMPORTANTE: safeLanc e safeMetas precisam ser declarados ANTES de serem usados
   const safeLanc = useMemo(() => {
     if (!lanc) return [];
     if (!Array.isArray(lanc)) return [];
@@ -618,6 +617,7 @@ function Dashboard({ session, onLogout }) {
     return metas;
   }, [metas]);
 
+  // ========== CATEGORIAS ==========
   const catsRFromDB = categorias.filter(c => c.tipo === "receita" && c.ativo).map(c => c.nome);
   const catsDFromDB = categorias.filter(c => c.tipo === "despesa" && c.ativo).map(c => c.nome);
   const catsRList = catsRFromDB.length > 0 ? catsRFromDB : CATS_R;
@@ -632,29 +632,55 @@ function Dashboard({ session, onLogout }) {
   const TIPO_R_DINAMICO = Object.keys(tipoRFromDB).length > 0 ? tipoRFromDB : TIPO_R;
   const TIPO_D_DINAMICO = Object.keys(tipoDFromDB).length > 0 ? tipoDFromDB : TIPO_D;
 
-  // Carregar dados iniciais
+  // ========== CALCULAR DATA VENCIMENTO ==========
+  const calcularDataVencimento = (dataCompra, parcelaAtual) => {
+    if (!dataCompra || !parcelaAtual) return dataCompra;
+    const data = new Date(dataCompra);
+    data.setMonth(data.getMonth() + (parcelaAtual - 1));
+    return data.toISOString().split("T")[0];
+  };
+
+  // ========== CARREGAR DADOS ==========
   useEffect(() => {
     if (!token) return;
     setLoading(true);
     
     Promise.all([
+      sb("/categorias?order=ordem.asc", { token }),
       sb("/lancamentos?order=data_vencimento.desc", { token }),
       sb("/metas?order=id.asc", { token }),
-    ]).then(([ls, ms]) => {
-      setLanc(Array.isArray(ls) ? ls : []);
-      setMetas(Array.isArray(ms) ? ms : []);
+    ]).then(([cats, lancs, metasData]) => {
+      if (Array.isArray(cats)) setCategorias(cats);
+      if (Array.isArray(lancs)) setLanc(lancs);
+      if (Array.isArray(metasData)) setMetas(metasData);
       
-      if (!ms || ms.length === 0) {
+      if (!metasData || metasData.length === 0) {
         sb("/metas", { method: "POST", token, body: METAS_DEF.map((m) => ({ ...m, user_id: uid })) })
-          .then((d) => setMetas(Array.isArray(d) ? d : []))
+          .then((d) => {
+            if (Array.isArray(d)) setMetas(d);
+          })
           .catch(() => {});
       }
     }).catch((e) => {
       console.error('❌ Erro no carregamento:', e);
-      toast("Erro: " + e.message);
+      toast("Erro: " + e.message, "error");
     }).finally(() => setLoading(false));
   }, [token, uid]);
 
+  // ========== DEBUG (opcional) ==========
+  useEffect(() => {
+    console.log('🚀 Dashboard inicializado');
+    console.log('📊 Estado atual:', {
+      totalLancamentos: safeLanc.length,
+      totalMetas: safeMetas.length,
+      categoriasCount: categorias.length
+    });
+  }, [safeLanc.length, safeMetas.length, categorias.length]);
+
+  // ========== RENOMEAR safeLanc para uso no JSX ==========
+  // Isso permite usar 'lancamentos' em vez de 'safeLanc' no JSX
+  const lancamentos = safeLanc;
+  
   // Salvar meta (criar ou editar)
   async function salvarMeta() {
     if (!metaForm.nome.trim() || metaForm.valor <= 0) {
