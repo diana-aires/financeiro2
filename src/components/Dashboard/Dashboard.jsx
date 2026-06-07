@@ -96,20 +96,20 @@ export function Dashboard({ session, onLogout }) {
           </>
         )}
 
-        {aba === "lancamentos" && (
-          <LancamentosScreen 
-            lancamentos={safeLanc}
-            categorias={categorias}
-            catsRList={catsRList}
-            catsDList={catsDList}
-            token={token}
-            uid={uid}
-            cartoes={cartoes}
-            setCartoes={setCartoes}
-            toast={toast}
-            onLancamentosUpdate={recarregarLancamentos}
-          />
-        )}
+    {aba === "lancamentos" && (
+  <LancamentosScreen 
+    lancamentos={safeLanc}
+    categorias={categorias}
+    catsRList={catsRList}
+    catsDList={catsDList}
+    token={token}      // <-- JÁ DEVE TER
+    uid={uid}          // <-- JÁ DEVE TER
+    cartoes={cartoes}
+    setCartoes={setCartoes}
+    toast={toast}
+    onLancamentosUpdate={recarregarLancamentos}
+  />
+)}
 
         {aba === "cartao" && (
           <CartaoScreen 
