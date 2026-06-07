@@ -494,7 +494,7 @@ function GerenciarCategorias({ token, catsR, catsD, onCategoriasChange }) {
   );
 }
 
-/* ════ DASHBOARD COM PROTEÇÃO RADICAL ════ */
+/* ════ DASHBOARD COMPLETO ════ */
 function Dashboard({ session, onLogout }) {
   const [aba, setAba] = useState("dashboard");
   const [lanc, setLanc] = useState([]);
@@ -504,55 +504,56 @@ function Dashboard({ session, onLogout }) {
   const [form, setForm] = useState({ ...BLANK });
   const [editId, setEditId] = useState(null);
   const [saving, setSaving] = useState(false);
-  const [filtro, setFiltro] = useState("");
+  const [filtroMes, setFiltroMes] = useState("");
   const [aiResp, setAiResp] = useState("");
   const [aiLoad, setAiLoad] = useState(false);
-  const [cartoes, setCartoes] = useState(CARTOES);
   const [aiQ, setAiQ] = useState("");
   const [toastMsg, setToastMsg] = useState("");
   const [showParcela, setShowParcela] = useState(false);
+  const [cartoes, setCartoes] = useState(CARTOES);
+  // Estados para gerenciar metas
+  const [metaModalAberto, setMetaModalAberto] = useState(false);
+  const [metaEditando, setMetaEditando] = useState(null);
+  const [metaForm, setMetaForm] = useState({ nome: "", valor: 0, atual: 0, prazo: "", cor: "navy" });
   const token = session?.access_token;
   const uid = session?.user?.id;
 
   function toast(m) { setToastMsg(m); setTimeout(() => setToastMsg(""), 3000); }
+
+  const calcularDataVencimento = (dataCompra, parcelaAtual) => {
+    if (!dataCompra || !parcelaAtual) return dataCompra;
+    const data = new Date(dataCompra);
+    data.setMonth(data.getMonth() + (parcelaAtual - 1));
+    return data.toISOString().split("T")[0];
+  };
 
   // Carregar categorias do banco
   useEffect(() => {
     if (!token) return;
     sb("/categorias?order=ordem.asc", { token })
       .then(data => {
-        if (Array.isArray(data)) {
-          setCategorias(data);
-        }
+        if (Array.isArray(data)) setCategorias(data);
       })
       .catch(err => console.error('Erro ao carregar categorias:', err));
   }, [token]);
 
   const safeLanc = useMemo(() => {
     if (!lanc) return [];
-    if (!Array.isArray(lanc)) {
-      console.error('❌ safeLanc detectou que lanc não é array:', lanc);
-      return [];
-    }
+    if (!Array.isArray(lanc)) return [];
     return lanc;
   }, [lanc]);
 
   const safeMetas = useMemo(() => {
     if (!metas) return [];
-    if (!Array.isArray(metas)) {
-      console.error('❌ safeMetas detectou que metas não é array:', metas);
-      return [];
-    }
+    if (!Array.isArray(metas)) return [];
     return metas;
   }, [metas]);
 
-  // Obter listas de categorias do banco ou fallback
   const catsRFromDB = categorias.filter(c => c.tipo === "receita" && c.ativo).map(c => c.nome);
   const catsDFromDB = categorias.filter(c => c.tipo === "despesa" && c.ativo).map(c => c.nome);
   const catsRList = catsRFromDB.length > 0 ? catsRFromDB : CATS_R;
   const catsDList = catsDFromDB.length > 0 ? catsDFromDB : CATS_D;
 
-  // Construir TIPO_R e TIPO_D dinâmicos
   const tipoRFromDB = {};
   const tipoDFromDB = {};
   categorias.forEach(c => {
@@ -562,61 +563,88 @@ function Dashboard({ session, onLogout }) {
   const TIPO_R_DINAMICO = Object.keys(tipoRFromDB).length > 0 ? tipoRFromDB : TIPO_R;
   const TIPO_D_DINAMICO = Object.keys(tipoDFromDB).length > 0 ? tipoDFromDB : TIPO_D;
 
+  // Carregar dados iniciais
   useEffect(() => {
     if (!token) return;
     setLoading(true);
     
     Promise.all([
-      sb("/lancamentos?order=data.desc", { token }),
+      sb("/lancamentos?order=data_vencimento.desc", { token }),
       sb("/metas?order=id.asc", { token }),
     ]).then(([ls, ms]) => {
-      console.log('📊 Dados recebidos do Supabase:');
-      console.log('- Lancamentos tipo:', typeof ls, 'é array?', Array.isArray(ls));
-      console.log('- Metas tipo:', typeof ms, 'é array?', Array.isArray(ms));
+      setLanc(Array.isArray(ls) ? ls : []);
+      setMetas(Array.isArray(ms) ? ms : []);
       
-      let lancamentosArray = [];
-      let metasArray = [];
-      
-      if (Array.isArray(ls)) {
-        lancamentosArray = ls;
-      } else if (ls && typeof ls === 'object') {
-        lancamentosArray = [ls];
-      }
-      
-      if (Array.isArray(ms)) {
-        metasArray = ms;
-      } else if (ms && typeof ms === 'object') {
-        metasArray = [ms];
-      }
-      
-      console.log('✅ Após correção - Lancamentos:', lancamentosArray.length, 'Metas:', metasArray.length);
-      
-      setLanc(lancamentosArray);
-      
-      if (metasArray.length === 0) {
-        console.log('📝 Criando metas padrão...');
+      if (!ms || ms.length === 0) {
         sb("/metas", { method: "POST", token, body: METAS_DEF.map((m) => ({ ...m, user_id: uid })) })
-          .then((d) => {
-            let newMetas = [];
-            if (Array.isArray(d)) {
-              newMetas = d;
-            } else if (d && typeof d === 'object') {
-              newMetas = [d];
-            }
-            setMetas(newMetas);
-          })
-          .catch(err => console.error('❌ Erro criar metas:', err));
-      } else {
-        setMetas(metasArray);
+          .then((d) => setMetas(Array.isArray(d) ? d : []))
+          .catch(() => {});
       }
     }).catch((e) => {
       console.error('❌ Erro no carregamento:', e);
       toast("Erro: " + e.message);
-      setLanc([]);
-      setMetas([]);
     }).finally(() => setLoading(false));
   }, [token, uid]);
 
+  // Salvar meta (criar ou editar)
+  async function salvarMeta() {
+    if (!metaForm.nome.trim() || metaForm.valor <= 0) {
+      toast("Preencha o nome e o valor da meta");
+      return;
+    }
+
+    const obj = {
+      nome: metaForm.nome.trim(),
+      valor: metaForm.valor,
+      atual: metaForm.atual || 0,
+      prazo: metaForm.prazo || null,
+      cor: metaForm.cor || "navy",
+      ativa: true,
+      user_id: uid
+    };
+
+    try {
+      if (metaEditando) {
+        await sb("/metas?id=eq." + metaEditando.id, { method: "PATCH", token, body: obj });
+        setMetas((prev) => {
+          const prevArray = Array.isArray(prev) ? prev : [];
+          return prevArray.map((m) => (m.id === metaEditando.id ? { ...m, ...obj } : m));
+        });
+        toast("Meta atualizada!");
+      } else {
+        const d = await sb("/metas", { method: "POST", token, body: obj });
+        const newMeta = Array.isArray(d) && d.length > 0 ? d[0] : d;
+        setMetas((prev) => {
+          const prevArray = Array.isArray(prev) ? prev : [];
+          return [newMeta, ...prevArray];
+        });
+        toast("Meta criada!");
+      }
+      setMetaModalAberto(false);
+      setMetaEditando(null);
+      setMetaForm({ nome: "", valor: 0, atual: 0, prazo: "", cor: "navy" });
+    } catch (e) {
+      console.error('Erro ao salvar meta:', e);
+      toast("Erro: " + e.message);
+    }
+  }
+
+  // Deletar meta
+  async function deletarMeta(id) {
+    try {
+      await sb("/metas?id=eq." + id, { method: "DELETE", token });
+      setMetas((prev) => {
+        const prevArray = Array.isArray(prev) ? prev : [];
+        return prevArray.filter((m) => m.id !== id);
+      });
+      toast("Meta removida!");
+    } catch (e) {
+      console.error('Erro ao deletar meta:', e);
+      toast("Erro: " + e.message);
+    }
+  }
+
+  // Cálculos do dashboard
   const rec = safeLanc.filter((l) => l?.tipo === "receita");
   const desp = safeLanc.filter((l) => l?.tipo === "despesa");
   const tR = rec.reduce((s, l) => s + Number(l?.valor || 0), 0);
@@ -632,21 +660,22 @@ function Dashboard({ session, onLogout }) {
   const dC = tR > 0 ? rF / tR : 0;
   const cFx = tR > 0 ? dF / tR : 0;
   
-  const meses = [...new Set(safeLanc.map((l) => l?.data?.slice(0, 7)).filter(Boolean))].sort().reverse();
+  const meses = [...new Set(safeLanc.map((l) => l?.data_vencimento?.slice(0, 7)).filter(Boolean))].sort().reverse();
   
   let lF = safeLanc;
-  if (filtro) {
-    lF = safeLanc.filter((l) => l?.data?.startsWith(filtro));
+  if (filtroMes) {
+    lF = safeLanc.filter((l) => l?.data_vencimento?.startsWith(filtroMes));
   }
   
   const sP = lF.reduce((s, l) => (l?.tipo === "receita" ? s + Number(l?.valor || 0) : s - Number(l?.valor || 0)), 0);
   
-  const parcelados = safeLanc.filter((l) => l?.parcelas && l.parcelas > 0);
-  const porCartao = {};
-  parcelados.forEach((l) => { 
-    const c = l?.cartao || "Sem cartão"; 
-    if (!porCartao[c]) porCartao[c] = []; 
-    porCartao[c].push(l); 
+  const parcelasPorMes = {};
+  safeLanc.forEach(l => {
+    if (l?.parcelas && l.parcelas > 0 && l?.data_vencimento) {
+      const mes = l.data_vencimento.slice(0, 7);
+      if (!parcelasPorMes[mes]) parcelasPorMes[mes] = [];
+      parcelasPorMes[mes].push(l);
+    }
   });
 
   function startEdit(l) {
@@ -657,7 +686,8 @@ function Dashboard({ session, onLogout }) {
       cat: l.cat || catsRList[0], 
       descricao: l.descricao || "", 
       valor: String(l.valor || ""), 
-      data: l.data || today(), 
+      data_compra: l.data_compra || today(),
+      data_vencimento: l.data_vencimento || today(),
       parcelas: l.parcelas ? String(l.parcelas) : "", 
       parcela_atual: l.parcela_atual ? String(l.parcela_atual) : "", 
       cartao: l.cartao || "" 
@@ -673,21 +703,29 @@ function Dashboard({ session, onLogout }) {
   }
 
   async function salvar() {
-    if (!form.descricao || !form.valor || !form.data) {
-      toast("Preencha descrição, valor e data");
+    if (!form.descricao || !form.valor || !form.data_compra) {
+      toast("Preencha descrição, valor e data da compra");
       return;
     }
     setSaving(true);
+    
+    let dataVencimento = form.data_vencimento;
+    if (form.parcelas && form.parcela_atual && !form.data_vencimento) {
+      dataVencimento = calcularDataVencimento(form.data_compra, parseInt(form.parcela_atual));
+    }
+    
     const obj = { 
       tipo: form.tipo, 
       cat: form.cat, 
       descricao: form.descricao, 
       valor: parseFloat(form.valor), 
-      data: form.data, 
+      data_compra: form.data_compra,
+      data_vencimento: dataVencimento || form.data_compra,
       parcelas: form.parcelas ? parseInt(form.parcelas) : null, 
       parcela_atual: form.parcela_atual ? parseInt(form.parcela_atual) : null, 
       cartao: form.cartao || null 
     };
+    
     try {
       if (editId) {
         await sb("/lancamentos?id=eq." + editId, { method: "PATCH", token, body: obj });
@@ -723,7 +761,8 @@ function Dashboard({ session, onLogout }) {
         cat: l.cat, 
         descricao: (l.descricao || "") + " (cópia)", 
         valor: l.valor, 
-        data: l.data, 
+        data_compra: l.data_compra || today(),
+        data_vencimento: l.data_vencimento || today(),
         parcelas: l.parcelas, 
         parcela_atual: l.parcela_atual ? l.parcela_atual + 1 : null, 
         cartao: l.cartao, 
@@ -778,7 +817,7 @@ function Dashboard({ session, onLogout }) {
     if (!aiQ.trim()) return;
     setAiLoad(true); 
     setAiResp("");
-    const sys = `Consultor financeiro. Receita ${fmt(tR)}, CLT ${fmt(rF)}, variável ${fmt(rV)}, despesas ${fmt(tD)}, saldo ${fmt(saldo)}, poupança ${fmtPct(txP)}, invest ${fmtPct(txI)}, fixas ${fmtPct(cFx)}, CLT ${fmtPct(dC)}, financiamento ${fmt(fin)}, parcelas ${parcelados.length}. Responda em português, máx 3 parágrafos.`;
+    const sys = `Consultor financeiro. Receita ${fmt(tR)}, despesas ${fmt(tD)}, saldo ${fmt(saldo)}. Responda em português, máx 3 parágrafos.`;
     try { 
       const r = await fetch("https://api.anthropic.com/v1/messages", { 
         method: "POST", 
@@ -825,7 +864,9 @@ function Dashboard({ session, onLogout }) {
       <div style={{ background: C.white, borderBottom: "1px solid " + C.border, padding: "0 1rem", position: "sticky", top: 0, zIndex: 40 }}>
         <div style={{ maxWidth: 1100, margin: "0 auto", display: "flex", alignItems: "center", height: 52, gap: 8 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            <div style={{ width: 28, height: 28, borderRadius: 7, background: C.navy, display: "flex", alignItems: "center", justifyContent: "center" }}><i className="ti ti-chart-pie-2" style={{ color: "#fff", fontSize: 14 }} /></div>
+            <div style={{ width: 28, height: 28, borderRadius: 7, background: C.navy, display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <i className="ti ti-chart-pie-2" style={{ color: "#fff", fontSize: 14 }} />
+            </div>
             <span style={{ fontWeight: 700, fontSize: 14, color: C.navy }}>FinancePro</span>
           </div>
           <div style={{ display: "flex", gap: 1, flex: 1, justifyContent: "center", flexWrap: "wrap" }}>
@@ -841,6 +882,8 @@ function Dashboard({ session, onLogout }) {
         </div>
       </div>
       <div style={{ maxWidth: 1100, margin: "0 auto", padding: "1.25rem" }}>
+        
+        {/* ========== DASHBOARD ========== */}
         {aba === "dashboard" && (
           <div style={{ animation: "fadeUp .4s ease" }}>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(140px,1fr))", gap: 10, marginBottom: 14 }}>
@@ -877,311 +920,520 @@ function Dashboard({ session, onLogout }) {
             <div style={crd}>
               <div style={{ fontWeight: 600, fontSize: 13, color: C.navy, marginBottom: 12 }}>Metas</div>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))", gap: 10 }}>
-                {safeMetas.map((m) => {
+                {safeMetas.slice(0, 3).map((m) => {
                   const p = Math.min(100, (m.atual / m.valor) * 100);
+                  const coresMap = { navy: C.navy, green: C.green, purple: C.purple, amber: C.amber, teal: C.teal, orange: C.orange, red: C.red };
+                  const corMeta = coresMap[m.cor] || C.navy;
                   return (
                     <div key={m.id} style={{ background: C.slate, borderRadius: 10, padding: 10, border: "1px solid " + C.border }}>
                       <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
-                        <span style={{ fontSize: 11, fontWeight: 600, color: C.navy }}>{m.nome}</span>
-                        <span style={{ fontSize: 11, fontWeight: 700, color: p >= 100 ? C.green : C.navy }}>{Math.round(p)}%</span>
+                        <span style={{ fontSize: 11, fontWeight: 600, color: corMeta }}>{m.nome}</span>
+                        <span style={{ fontSize: 11, fontWeight: 700, color: p >= 100 ? C.green : corMeta }}>{Math.round(p)}%</span>
                       </div>
-                      <Bar pct={p} color={p >= 100 ? C.green : C.navy} />
+                      <Bar pct={p} color={p >= 100 ? C.green : corMeta} />
                       <div style={{ fontSize: 10, color: C.grayD, marginTop: 4 }}>{fmt(m.atual)} / {fmt(m.valor)}</div>
                     </div>
                   );
                 })}
+                {safeMetas.length > 3 && (
+                  <div style={{ background: C.slate, borderRadius: 10, padding: 10, border: "1px solid " + C.border, display: "flex", alignItems: "center", justifyContent: "center", minHeight: 80 }}>
+                    <button onClick={() => setAba("metas")} style={{ fontSize: 11, color: C.navy, background: "none", border: "none", cursor: "pointer", fontWeight: 500 }}>
+                      + {safeMetas.length - 3} outras metas
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           </div>
         )}
 
-    {aba === "lancamentos" && (
-  <div style={{ animation: "fadeUp .4s ease" }}>
-    <div style={{ ...crd, marginBottom: 14 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 12 }}>
-        <span style={{ fontWeight: 600, fontSize: 13, color: C.navy }}>{editId ? "Editando" : "Novo lançamento"}</span>
-        {editId && <button onClick={cancelEdit} style={{ fontSize: 12, color: C.red, background: "none", border: "none", cursor: "pointer" }}>Cancelar</button>}
-      </div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(130px,1fr))", gap: 8, marginBottom: 10 }}>
-        <div>
-          <label style={lab}>Tipo</label>
-          <select value={form.tipo} onChange={(e) => setForm((f) => ({ ...f, tipo: e.target.value, cat: e.target.value === "receita" ? catsRList[0] : catsDList[0] }))} style={inp}>
-            <option value="receita">Receita</option>
-            <option value="despesa">Despesa</option>
-          </select>
-        </div>
-        <div>
-          <label style={lab}>Categoria</label>
-          <select value={form.cat} onChange={(e) => setForm((f) => ({ ...f, cat: e.target.value }))} style={inp}>
-            {(form.tipo === "receita" ? catsRList : catsDList).map((c) => <option key={c}>{c}</option>)}
-          </select>
-        </div>
-        <div>
-          <label style={lab}>Data</label>
-          <input type="date" value={form.data} onChange={(e) => setForm((f) => ({ ...f, data: e.target.value }))} style={inp} />
-        </div>
-        <div>
-          <label style={lab}>Valor</label>
-          <input type="number" min="0" step="0.01" value={form.valor} onChange={(e) => setForm((f) => ({ ...f, valor: e.target.value }))} style={inp} />
-        </div>
-        <div style={{ gridColumn: "1 / -1" }}>
-          <label style={lab}>Descrição</label>
-          <input type="text" placeholder="Ex: Consultoria" value={form.descricao} onChange={(e) => setForm((f) => ({ ...f, descricao: e.target.value }))} style={inp} onKeyDown={(e) => e.key === "Enter" && salvar()} />
-        </div>
-      </div>
+        {/* ========== LANÇAMENTOS ========== */}
+        {aba === "lancamentos" && (
+          <div style={{ animation: "fadeUp .4s ease" }}>
+            <div style={{ ...crd, marginBottom: 14 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 12 }}>
+                <span style={{ fontWeight: 600, fontSize: 13, color: C.navy }}>{editId ? "Editando" : "Novo lançamento"}</span>
+                {editId && <button onClick={cancelEdit} style={{ fontSize: 12, color: C.red, background: "none", border: "none", cursor: "pointer" }}>Cancelar</button>}
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(130px,1fr))", gap: 8, marginBottom: 10 }}>
+                <div>
+                  <label style={lab}>Tipo</label>
+                  <select value={form.tipo} onChange={(e) => setForm((f) => ({ ...f, tipo: e.target.value, cat: e.target.value === "receita" ? catsRList[0] : catsDList[0] }))} style={inp}>
+                    <option value="receita">Receita</option>
+                    <option value="despesa">Despesa</option>
+                  </select>
+                </div>
+                <div>
+                  <label style={lab}>Categoria</label>
+                  <select value={form.cat} onChange={(e) => setForm((f) => ({ ...f, cat: e.target.value }))} style={inp}>
+                    {(form.tipo === "receita" ? catsRList : catsDList).map((c) => <option key={c}>{c}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label style={lab}>Data da Compra</label>
+                  <input type="date" value={form.data_compra} onChange={(e) => setForm((f) => ({ ...f, data_compra: e.target.value }))} style={inp} />
+                </div>
+                <div>
+                  <label style={lab}>Data Vencimento</label>
+                  <input type="date" value={form.data_vencimento} onChange={(e) => setForm((f) => ({ ...f, data_vencimento: e.target.value }))} style={inp} />
+                </div>
+                <div>
+                  <label style={lab}>Valor</label>
+                  <input type="number" min="0" step="0.01" value={form.valor} onChange={(e) => setForm((f) => ({ ...f, valor: e.target.value }))} style={inp} />
+                </div>
+                <div style={{ gridColumn: "1 / -1" }}>
+                  <label style={lab}>Descrição</label>
+                  <input type="text" placeholder="Ex: Consultoria" value={form.descricao} onChange={(e) => setForm((f) => ({ ...f, descricao: e.target.value }))} style={inp} onKeyDown={(e) => e.key === "Enter" && salvar()} />
+                </div>
+              </div>
 
-      {/* SEÇÃO DE PARCELAMENTO COM BOTÃO PARA ADICIONAR CARTÃO */}
-      <div style={{ marginBottom: 12 }}>
-        <button 
-          onClick={() => setShowParcela(!showParcela)} 
-          style={{ fontSize: 12, color: C.navy, fontWeight: 500, background: "none", border: "none", cursor: "pointer" }}
-        >
-          {showParcela ? "▾" : "▸"} Parcelamento
-        </button>
-        
-        {showParcela && (
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(120px,1fr))", gap: 8, marginTop: 8, padding: 10, background: C.slate, borderRadius: 10, border: "1px solid " + C.border }}>
-            <div>
-              <label style={lab}>Parcelas</label>
-              <input type="number" min="1" value={form.parcelas} onChange={(e) => setForm((f) => ({ ...f, parcelas: e.target.value }))} style={inp} />
+              <div style={{ marginBottom: 12 }}>
+                <button onClick={() => setShowParcela(!showParcela)} style={{ fontSize: 12, color: C.navy, fontWeight: 500, background: "none", border: "none", cursor: "pointer" }}>
+                  {showParcela ? "▾" : "▸"} Parcelamento
+                </button>
+                {showParcela && (
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(120px,1fr))", gap: 8, marginTop: 8, padding: 10, background: C.slate, borderRadius: 10, border: "1px solid " + C.border }}>
+                    <div>
+                      <label style={lab}>Parcelas</label>
+                      <input type="number" min="1" value={form.parcelas} onChange={(e) => setForm((f) => ({ ...f, parcelas: e.target.value }))} style={inp} />
+                    </div>
+                    <div>
+                      <label style={lab}>Atual</label>
+                      <input type="number" min="1" value={form.parcela_atual} onChange={(e) => setForm((f) => ({ ...f, parcela_atual: e.target.value }))} style={inp} />
+                    </div>
+                    <div>
+                      <label style={lab}>Cartão</label>
+                      <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                        <select value={form.cartao} onChange={(e) => setForm((f) => ({ ...f, cartao: e.target.value }))} style={{ ...inp, flex: 1 }}>
+                          <option value="">Selecione</option>
+                          {cartoes.map((c) => <option key={c} value={c}>{c}</option>)}
+                        </select>
+                        <button
+                          onClick={() => {
+                            let novoCartao = prompt("Digite o nome do novo cartão:", "");
+                            if (novoCartao && novoCartao.trim()) {
+                              novoCartao = novoCartao.trim();
+                              if (!cartoes.includes(novoCartao)) {
+                                setCartoes([...cartoes, novoCartao]);
+                                setForm((f) => ({ ...f, cartao: novoCartao }));
+                                toast(`✅ Cartão "${novoCartao}" adicionado!`);
+                              } else {
+                                toast(`⚠️ Cartão "${novoCartao}" já existe!`);
+                              }
+                            }
+                          }}
+                          style={{ ...btnP, padding: "6px 10px", borderRadius: 8 }}
+                          title="Adicionar novo cartão">
+                          <i className="ti ti-plus" style={{ fontSize: 12 }} />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <button onClick={salvar} disabled={saving} style={{ ...btnP, padding: "9px 20px", borderRadius: 10 }}>
+                {saving ? <i className="ti ti-loader-2" style={{ animation: "spin 1s linear infinite" }} /> : <i className={"ti " + (editId ? "ti-check" : "ti-device-floppy")} />}
+                {editId ? "Atualizar" : "Salvar"}
+              </button>
             </div>
-            <div>
-              <label style={lab}>Atual</label>
-              <input type="number" min="1" value={form.parcela_atual} onChange={(e) => setForm((f) => ({ ...f, parcela_atual: e.target.value }))} style={inp} />
+
+            <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 10, flexWrap: "wrap" }}>
+              <select value={filtroMes} onChange={(e) => setFiltroMes(e.target.value)} style={{ ...inp, width: "auto" }}>
+                <option value="">Todos os meses ({safeLanc.length})</option>
+                {meses.map((m) => <option key={m} value={m}>{m.replace("-", "/")}</option>)}
+              </select>
+              <span style={{ marginLeft: "auto", fontSize: 11, color: C.green }}>Entr: {fmt(lF.filter((l) => l.tipo === "receita").reduce((s, l) => s + Number(l.valor), 0))}</span>
+              <span style={{ fontSize: 11, color: C.red }}>Saíd: {fmt(lF.filter((l) => l.tipo === "despesa").reduce((s, l) => s + Number(l.valor), 0))}</span>
             </div>
-            <div>
-              <label style={lab}>Cartão</label>
-              <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                <select 
-                  value={form.cartao} 
-                  onChange={(e) => setForm((f) => ({ ...f, cartao: e.target.value }))} 
-                  style={{ ...inp, flex: 1 }}
-                >
-                  <option value="">Selecione</option>
-                  {cartoes.map((c) => <option key={c} value={c}>{c}</option>)}
-                </select>
-                <button
-                  onClick={() => {
-                    let novoCartao = prompt("Digite o nome do novo cartão:", "");
-                    if (novoCartao && novoCartao.trim()) {
-                      novoCartao = novoCartao.trim();
-                      if (!cartoes.includes(novoCartao)) {
-                        setCartoes([...cartoes, novoCartao]);
-                        setForm((f) => ({ ...f, cartao: novoCartao }));
-                        toast(`✅ Cartão "${novoCartao}" adicionado!`);
-                      } else {
-                        toast(`⚠️ Cartão "${novoCartao}" já existe!`);
-                      }
+
+            <div style={crd}>
+              {lF.length === 0 ? (
+                <div style={{ textAlign: "center", padding: "2rem", color: C.grayD, fontSize: 13 }}>Nenhum lançamento.</div>
+              ) : (
+                <div style={{ overflowX: "auto" }}>
+                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+                    <thead>
+                      <tr style={{ borderBottom: "2px solid " + C.border }}>
+                        <th style={{ textAlign: "left", padding: "7px 8px", fontWeight: 600, color: C.grayD }}>Vencimento</th>
+                        <th style={{ textAlign: "left", padding: "7px 8px", fontWeight: 600, color: C.grayD }}>Compra</th>
+                        <th style={{ textAlign: "left", padding: "7px 8px", fontWeight: 600, color: C.grayD }}>Descrição</th>
+                        <th style={{ textAlign: "left", padding: "7px 8px", fontWeight: 600, color: C.grayD }}>Categoria</th>
+                        <th style={{ textAlign: "left", padding: "7px 8px", fontWeight: 600, color: C.grayD }}>Parcela</th>
+                        <th style={{ textAlign: "right", padding: "7px 8px", fontWeight: 600, color: C.grayD }}>Valor</th>
+                        <th style={{ textAlign: "center", padding: "7px 8px", fontWeight: 600, color: C.grayD }}>Ações</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {lF.map((l) => (
+                        <tr key={l.id} className="row-hover" style={{ borderBottom: "1px solid " + C.border }}>
+                          <td style={{ padding: 8, color: C.grayD, whiteSpace: "nowrap" }}>{l.data_vencimento?.split("-").reverse().join("/")}</td>
+                          <td style={{ padding: 8, color: C.grayD, whiteSpace: "nowrap" }}>{l.data_compra?.split("-").reverse().join("/")}<td>
+                          <td style={{ padding: 8, fontWeight: 500 }}>{l.descricao}</td>
+                          <td style={{ padding: 8 }}>
+                            <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 99, background: l.tipo === "receita" ? "#ECFDF5" : "#FEF2F2", color: l.tipo === "receita" ? C.greenD : C.red }}>
+                              {l.cat}
+                            </span>
+                          </td>
+                          <td style={{ padding: 8, fontSize: 10, color: C.grayD, whiteSpace: "nowrap" }}>
+                            {l.parcelas ? `${l.parcela_atual || 1}/${l.parcelas}` : "—"}
+                            {l.cartao && <span style={{ marginLeft: 4, fontSize: 9 }}>({l.cartao})</span>}
+                          </td>
+                          <td style={{ padding: 8, fontWeight: 700, color: l.tipo === "receita" ? C.green : C.red, textAlign: "right", whiteSpace: "nowrap" }}>
+                            {l.tipo === "despesa" ? "-" : ""}{fmt(l.valor)}
+                          </td>
+                          <td style={{ padding: 8, whiteSpace: "nowrap", textAlign: "center" }}>
+                            <button onClick={() => startEdit(l)} style={btnI}><i className="ti ti-edit" style={{ fontSize: 13, color: C.navy }} /></button>
+                            <button onClick={() => duplicar(l)} style={btnI}><i className="ti ti-copy" style={{ fontSize: 13, color: C.purple }} /></button>
+                            <button onClick={() => del(l.id)} style={btnI}><i className="ti ti-trash" style={{ fontSize: 13, color: C.red }} /></button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr style={{ borderTop: "2px solid " + C.border }}>
+                        <td colSpan={6} style={{ padding: 8, fontWeight: 600 }}>Saldo do período</td>
+                        <td style={{ padding: 8, fontWeight: 700, textAlign: "right", color: sP >= 0 ? C.green : C.red }}>{fmt(sP)}</td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ========== CARTÃO - PARCELAS POR MÊS ========== */}
+        {aba === "cartao" && (
+          <div style={{ animation: "fadeUp .4s ease" }}>
+            <div style={{ ...crd, marginBottom: 14 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+                <div>
+                  <div style={{ fontWeight: 600, fontSize: 14, color: C.navy }}>Parcelas por Mês</div>
+                  <div style={{ fontSize: 12, color: C.grayD }}>
+                    Total de parcelas: {safeLanc.filter(l => l?.parcelas && l.parcelas > 0).length}
+                  </div>
+                </div>
+                <button onClick={() => {
+                  let novoCartao = prompt("Digite o nome do novo cartão:", "");
+                  if (novoCartao && novoCartao.trim()) {
+                    novoCartao = novoCartao.trim();
+                    if (!cartoes.includes(novoCartao)) {
+                      setCartoes([...cartoes, novoCartao]);
+                      toast(`✅ Cartão "${novoCartao}" adicionado!`);
+                    } else {
+                      toast(`⚠️ Cartão "${novoCartao}" já existe!`);
                     }
-                  }}
-                  style={{ ...btnP, padding: "6px 10px", borderRadius: 8 }}
-                  title="Adicionar novo cartão"
-                >
-                  <i className="ti ti-plus" style={{ fontSize: 12 }} />
+                  }
+                }} style={{ ...btnS, gap: 6 }}>
+                  <i className="ti ti-plus" style={{ fontSize: 14 }} />
+                  Novo Cartão
+                </button>
+              </div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                {cartoes.map((cartao) => (
+                  <span key={cartao} style={{ padding: "4px 12px", background: C.slate, borderRadius: 20, fontSize: 12, border: "1px solid " + C.border }}>
+                    {cartao}
+                  </span>
+                ))}
+              </div>
+            </div>
+
+            {Object.keys(parcelasPorMes).length === 0 ? (
+              <div style={{ ...crd, textAlign: "center", padding: "3rem", color: C.grayD, fontSize: 13 }}>
+                <i className="ti ti-credit-card-off" style={{ fontSize: 48, display: "block", marginBottom: 16, opacity: 0.5 }} />
+                Nenhuma parcela encontrada.
+              </div>
+            ) : (
+              Object.keys(parcelasPorMes).sort().reverse().map((mes) => {
+                const parcelasDoMes = parcelasPorMes[mes];
+                const totalMes = parcelasDoMes.reduce((s, l) => s + Number(l.valor), 0);
+                const nomeMes = new Date(mes + "-01").toLocaleDateString("pt-BR", { month: "long", year: "numeric" });
+                return (
+                  <div key={mes} style={{ ...crd, marginBottom: 16 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, paddingBottom: 12, borderBottom: "2px solid " + C.border }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                        <div style={{ width: 40, height: 40, borderRadius: 12, background: C.navy + "15", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                          <i className="ti ti-calendar-month" style={{ fontSize: 20, color: C.navy }} />
+                        </div>
+                        <div>
+                          <div style={{ fontWeight: 700, fontSize: 16, color: C.navy, textTransform: "capitalize" }}>{nomeMes}</div>
+                          <div style={{ fontSize: 11, color: C.grayD }}>
+                            {parcelasDoMes.length} parcela(s) • {Object.keys(parcelasDoMes.reduce((acc, l) => ({ ...acc, [l.cartao]: true }), {})).length} cartão(ões)
+                          </div>
+                        </div>
+                      </div>
+                      <div style={{ fontSize: 22, fontWeight: 700, color: C.red, background: C.red + "10", padding: "6px 16px", borderRadius: 30 }}>
+                        {fmt(totalMes)}
+                      </div>
+                    </div>
+                    <div style={{ overflowX: "auto" }}>
+                      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                        <thead>
+                          <tr style={{ borderBottom: "1px solid " + C.border, background: C.slate }}>
+                            <th style={{ textAlign: "left", padding: "10px 8px", fontWeight: 600, color: C.grayD }}>Data Compra</th>
+                            <th style={{ textAlign: "left", padding: "10px 8px", fontWeight: 600, color: C.grayD }}>Descrição</th>
+                            <th style={{ textAlign: "left", padding: "10px 8px", fontWeight: 600, color: C.grayD }}>Categoria</th>
+                            <th style={{ textAlign: "center", padding: "10px 8px", fontWeight: 600, color: C.grayD }}>Parcela</th>
+                            <th style={{ textAlign: "left", padding: "10px 8px", fontWeight: 600, color: C.grayD }}>Cartão</th>
+                            <th style={{ textAlign: "right", padding: "10px 8px", fontWeight: 600, color: C.grayD }}>Valor</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {parcelasDoMes.map((l) => {
+                            const progresso = (l.parcela_atual / l.parcelas) * 100;
+                            return (
+                              <tr key={l.id} style={{ borderBottom: "1px solid " + C.border }} className="row-hover">
+                                <td style={{ padding: "10px 8px", color: C.grayD, whiteSpace: "nowrap" }}>{l.data_compra?.split("-").reverse().join("/")}</td>
+                                <td style={{ padding: "10px 8px", fontWeight: 500 }}>{l.descricao}</td>
+                                <td style={{ padding: "10px 8px" }}>
+                                  <span style={{ fontSize: 10, padding: "4px 10px", borderRadius: 20, background: "#FEF2F2", color: C.red, whiteSpace: "nowrap" }}>
+                                    {l.cat}
+                                  </span>
+                                </td>
+                                <td style={{ padding: "10px 8px", textAlign: "center" }}>
+                                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
+                                    <span style={{ fontWeight: 600, fontSize: 13, color: C.navy }}>{l.parcela_atual}/{l.parcelas}</span>
+                                    <div style={{ width: "60px" }}><Bar pct={progresso} color={progresso >= 100 ? C.green : C.purple} /></div>
+                                  </div>
+                                </td>
+                                <td style={{ padding: "10px 8px" }}>
+                                  <span style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "2px 8px", background: C.navy + "10", borderRadius: 15, fontSize: 11, color: C.navy }}>
+                                    <i className="ti ti-credit-card" style={{ fontSize: 11 }} />
+                                    {l.cartao || "Sem cartão"}
+                                  </span>
+                                </td>
+                                <td style={{ padding: "10px 8px", textAlign: "right", fontWeight: 700, color: C.red, whiteSpace: "nowrap" }}>{fmt(l.valor)}</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                        <tfoot>
+                          <tr style={{ borderTop: "2px solid " + C.border, background: C.slate }}>
+                            <td colSpan={5} style={{ padding: "10px 8px", fontWeight: 600 }}>Total do mês</td>
+                            <td style={{ padding: "10px 8px", textAlign: "right", fontWeight: 700, fontSize: 14, color: C.red }}>{fmt(totalMes)}</td>
+                          </tr>
+                        </tfoot>
+                      </table>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        )}
+
+        {/* ========== METAS ========== */}
+        {aba === "metas" && (
+          <div style={{ animation: "fadeUp .4s ease" }}>
+            <div style={{ ...crd, marginBottom: 14 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+                <div>
+                  <div style={{ fontWeight: 600, fontSize: 14, color: C.navy }}>Minhas Metas Financeiras</div>
+                  <div style={{ fontSize: 12, color: C.grayD }}>
+                    Acompanhe seu progresso rumo aos seus objetivos
+                  </div>
+                </div>
+                <button onClick={() => {
+                  setMetaEditando(null);
+                  setMetaForm({ nome: "", valor: 0, atual: 0, prazo: "", cor: "navy" });
+                  setMetaModalAberto(true);
+                }} style={{ ...btnS, gap: 6 }}>
+                  <i className="ti ti-plus" style={{ fontSize: 14 }} />
+                  Nova Meta
                 </button>
               </div>
             </div>
-          </div>
-        )}
-      </div>
 
-      <button onClick={salvar} disabled={saving} style={{ ...btnP, padding: "9px 20px", borderRadius: 10 }}>
-        {saving ? <i className="ti ti-loader-2" style={{ animation: "spin 1s linear infinite" }} /> : <i className={"ti " + (editId ? "ti-check" : "ti-device-floppy")} />}
-        {editId ? "Atualizar" : "Salvar"}
-      </button>
-    </div>
-
-    {/* FILTRO E TABELA DE LANÇAMENTOS */}
-    <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 10, flexWrap: "wrap" }}>
-      <select value={filtro} onChange={(e) => setFiltro(e.target.value)} style={{ ...inp, width: "auto" }}>
-        <option value="">Todos ({safeLanc.length})</option>
-        {meses.map((m) => <option key={m} value={m}>{m}</option>)}
-      </select>
-      <span style={{ marginLeft: "auto", fontSize: 11, color: C.green }}>Entr: {fmt(lF.filter((l) => l.tipo === "receita").reduce((s, l) => s + Number(l.valor), 0))}</span>
-      <span style={{ fontSize: 11, color: C.red }}>Saíd: {fmt(lF.filter((l) => l.tipo === "despesa").reduce((s, l) => s + Number(l.valor), 0))}</span>
-    </div>
-
-    <div style={crd}>
-      {lF.length === 0 ? (
-        <div style={{ textAlign: "center", padding: "2rem", color: C.grayD, fontSize: 13 }}>Nenhum lançamento.</div>
-      ) : (
-        <div style={{ overflowX: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
-            <thead>
-              <tr style={{ borderBottom: "2px solid " + C.border }}>
-                {["Data", "Descrição", "Categoria", "Parcela", "Valor", "Ações"].map((h) => (
-                  <th key={h} style={{ textAlign: "left", padding: "7px 8px", fontWeight: 600, color: C.grayD }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {lF.map((l) => (
-                <tr key={l.id} className="row-hover" style={{ borderBottom: "1px solid " + C.border }}>
-                  <td style={{ padding: 8, color: C.grayD }}>{l.data?.split("-").reverse().join("/")}</td>
-                  <td style={{ padding: 8, fontWeight: 500 }}>{l.descricao}</td>
-                  <td style={{ padding: 8 }}>
-                    <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 99, background: l.tipo === "receita" ? "#ECFDF5" : "#FEF2F2", color: l.tipo === "receita" ? C.greenD : C.red }}>
-                      {l.cat}
-                    </span>
-                  </td>
-                  <td style={{ padding: 8, fontSize: 10, color: C.grayD }}>{l.parcelas ? (l.parcela_atual || 1) + "/" + l.parcelas : "—"}</td>
-                  <td style={{ padding: 8, fontWeight: 700, color: l.tipo === "receita" ? C.green : C.red, textAlign: "right" }}>
-                    {l.tipo === "despesa" ? "-" : ""}{fmt(l.valor)}
-                  </td>
-                  <td style={{ padding: 8 }}>
-                    <button onClick={() => startEdit(l)} style={btnI}><i className="ti ti-edit" style={{ fontSize: 13, color: C.navy }} /></button>
-                    <button onClick={() => duplicar(l)} style={btnI}><i className="ti ti-copy" style={{ fontSize: 13, color: C.purple }} /></button>
-                    <button onClick={() => del(l.id)} style={btnI}><i className="ti ti-trash" style={{ fontSize: 13, color: C.red }} /></button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-            <tfoot>
-              <tr style={{ borderTop: "2px solid " + C.border }}>
-                <td colSpan={4} style={{ padding: 8, fontWeight: 600 }}>Saldo</td>
-                <td style={{ padding: 8, fontWeight: 700, textAlign: "right", color: sP >= 0 ? C.green : C.red }}>{fmt(sP)}</td>
-                <td></td>
-              </tr>
-            </tfoot>
-          </table>
-        </div>
-      )}
-    </div>
-  </div>
-)}
-       {aba === "cartao" && (
-  <div style={{ animation: "fadeUp .4s ease" }}>
-    <div style={{ ...crd, marginBottom: 14 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-        <div>
-          <div style={{ fontWeight: 600, fontSize: 14, color: C.navy }}>Parcelas no cartão</div>
-          <div style={{ fontSize: 12, color: C.grayD }}>
-            {parcelados.length} parcela(s) · Mensal: {fmt(parcelados.reduce((s, l) => s + Number(l.valor), 0))}
-          </div>
-        </div>
-        <button 
-          onClick={() => {
-            let novoCartao = prompt("Digite o nome do novo cartão:", "");
-            if (novoCartao && novoCartao.trim()) {
-              novoCartao = novoCartao.trim();
-              if (!cartoes.includes(novoCartao)) {
-                setCartoes([...cartoes, novoCartao]);
-                toast(`✅ Cartão "${novoCartao}" adicionado com sucesso!`);
-              } else {
-                toast(`⚠️ Cartão "${novoCartao}" já existe!`);
-              }
-            }
-          }}
-          style={{ ...btnS, gap: 6 }}
-        >
-          <i className="ti ti-plus" style={{ fontSize: 14 }} />
-          Novo Cartão
-        </button>
-      </div>
-    </div>
-
-    {parcelados.length === 0 ? (
-      <div style={{ ...crd, textAlign: "center", padding: "2rem", color: C.grayD, fontSize: 13 }}>
-        <i className="ti ti-credit-card" style={{ fontSize: 32, display: "block", marginBottom: 12, opacity: 0.5 }} />
-        Nenhuma parcela encontrada.
-        <div style={{ fontSize: 11, marginTop: 8, color: C.gray }}>
-          Adicione compras parceladas nos lançamentos.
-        </div>
-      </div>
-    ) : (
-      Object.entries(porCartao).map(([cartao, items]) => (
-        <div key={cartao} style={{ ...crd, marginBottom: 12 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <i className="ti ti-credit-card" style={{ fontSize: 16, color: C.navy }} />
-              <div>
-                <div style={{ fontWeight: 600, fontSize: 13, color: C.navy }}>{cartao}</div>
-                <div style={{ fontSize: 11, color: C.grayD }}>{items.length} item(ns)</div>
+            {safeMetas.length === 0 ? (
+              <div style={{ ...crd, textAlign: "center", padding: "3rem", color: C.grayD, fontSize: 13 }}>
+                <i className="ti ti-target" style={{ fontSize: 48, display: "block", marginBottom: 16, opacity: 0.5 }} />
+                Nenhuma meta cadastrada.
+                <div style={{ fontSize: 12, marginTop: 8, color: C.gray }}>
+                  Clique em "Nova Meta" para começar a planejar seus objetivos!
+                </div>
               </div>
-            </div>
-            <div style={{ fontSize: 14, fontWeight: 700, color: C.navy }}>
-              {fmt(items.reduce((s, l) => s + Number(l.valor), 0))}/mês
-            </div>
-          </div>
-          <div style={{ overflowX: "auto" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
-              <thead>
-                <tr style={{ borderBottom: "2px solid " + C.border }}>
-                  {["Descrição", "Parcela", "Progresso", "Valor", "Restante"].map((h) => (
-                    <th key={h} style={{ textAlign: "left", padding: "8px", fontWeight: 600, color: C.grayD }}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {items.map((l) => {
-                  const pa = l.parcela_atual || 1;
-                  const pt = l.parcelas;
-                  const pct = (pa / pt) * 100;
-                  const rest = (pt - pa) * Number(l.valor);
+            ) : (
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(280px,1fr))", gap: 16 }}>
+                {safeMetas.map((m) => {
+                  const p = Math.min(100, (m.atual / m.valor) * 100);
+                  const restante = m.valor - m.atual;
+                  const coresMap = { navy: C.navy, green: C.green, purple: C.purple, amber: C.amber, teal: C.teal, orange: C.orange, red: C.red };
+                  const corMeta = coresMap[m.cor] || C.navy;
+                  
                   return (
-                    <tr key={l.id} style={{ borderBottom: "1px solid " + C.border }}>
-                      <td style={{ padding: 8, fontWeight: 500 }}>{l.descricao}</td>
-                      <td style={{ padding: 8, color: C.grayD }}>{pa}/{pt}</td>
-                      <td style={{ padding: 8, minWidth: 100 }}>
-                        <Bar pct={pct} color={pct >= 100 ? C.green : C.purple} />
-                        <span style={{ fontSize: 10, marginLeft: 8 }}>{Math.round(pct)}%</span>
-                      </td>
-                      <td style={{ padding: 8, color: C.red, whiteSpace: "nowrap" }}>{fmt(l.valor)}</td>
-                      <td style={{ padding: 8, color: C.grayD, whiteSpace: "nowrap" }}>{fmt(rest)}</td>
-                    </tr>
+                    <div key={m.id} style={{ ...crd, borderTop: `4px solid ${corMeta}`, position: "relative" }}>
+                      <div style={{ position: "absolute", top: 12, right: 12, display: "flex", gap: 4 }}>
+                        <button onClick={() => {
+                          setMetaEditando(m);
+                          setMetaForm({
+                            nome: m.nome,
+                            valor: m.valor,
+                            atual: m.atual,
+                            prazo: m.prazo || "",
+                            cor: m.cor || "navy"
+                          });
+                          setMetaModalAberto(true);
+                        }} style={btnI} title="Editar meta">
+                          <i className="ti ti-edit" style={{ fontSize: 14, color: C.navy }} />
+                        </button>
+                        <button onClick={() => {
+                          if (window.confirm(`Tem certeza que deseja excluir a meta "${m.nome}"?`)) {
+                            deletarMeta(m.id);
+                          }
+                        }} style={btnI} title="Excluir meta">
+                          <i className="ti ti-trash" style={{ fontSize: 14, color: C.red }} />
+                        </button>
+                      </div>
+
+                      <div style={{ marginBottom: 12 }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                          <div>
+                            <div style={{ fontWeight: 700, fontSize: 16, color: corMeta }}>{m.nome}</div>
+                            {m.prazo && (
+                              <div style={{ fontSize: 11, color: C.grayD, display: "flex", alignItems: "center", gap: 4, marginTop: 2 }}>
+                                <i className="ti ti-calendar" style={{ fontSize: 11 }} />
+                                Prazo: {m.prazo}
+                              </div>
+                            )}
+                          </div>
+                          <div style={{ fontSize: 20, fontWeight: 700, color: corMeta }}>
+                            {Math.round(p)}%
+                          </div>
+                        </div>
+                        
+                        <Bar pct={p} color={corMeta} />
+                        
+                        <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8, marginBottom: 12 }}>
+                          <div>
+                            <div style={{ fontSize: 10, color: C.grayD }}>Acumulado</div>
+                            <div style={{ fontSize: 14, fontWeight: 600, color: corMeta }}>{fmt(m.atual)}</div>
+                          </div>
+                          <div style={{ textAlign: "right" }}>
+                            <div style={{ fontSize: 10, color: C.grayD }}>Meta</div>
+                            <div style={{ fontSize: 14, fontWeight: 600, color: C.grayD }}>{fmt(m.valor)}</div>
+                          </div>
+                        </div>
+                        
+                        {restante > 0 && (
+                          <div style={{ background: C.slate, borderRadius: 10, padding: "8px 12px", marginBottom: 12, fontSize: 12, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                            <span style={{ color: C.grayD }}>Faltam:</span>
+                            <span style={{ fontWeight: 700, color: corMeta }}>{fmt(restante)}</span>
+                          </div>
+                        )}
+                        
+                        <div style={{ display: "flex", gap: 8 }}>
+                          <input type="number" min="0" step="0.01" id={"mi-" + m.id} placeholder="Valor do aporte" style={{ ...inp, flex: 1 }} />
+                          <button onClick={() => {
+                            const el = document.getElementById("mi-" + m.id);
+                            const v = parseFloat(el.value);
+                            if (!isNaN(v) && v > 0) {
+                              updMeta(m.id, v);
+                              el.value = "";
+                            } else {
+                              toast("Digite um valor válido");
+                            }
+                          }} style={{ ...btnP, gap: 4 }}>
+                            <i className="ti ti-plus" style={{ fontSize: 12 }} />
+                            Aportar
+                          </button>
+                        </div>
+
+                        {p >= 100 && (
+                          <div style={{ marginTop: 12, padding: "6px 12px", background: C.green + "15", borderRadius: 8, textAlign: "center", fontSize: 11, color: C.green, fontWeight: 500, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+                            <i className="ti ti-check" style={{ fontSize: 14 }} />
+                            Meta alcançada! 🎉
+                          </div>
+                        )}
+                      </div>
+                    </div>
                   );
                 })}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      ))
-    )}
-  </div>
-)}
+              </div>
+            )}
 
-        {aba === "metas" && (
-          <div style={{ animation: "fadeUp .4s ease", display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(250px,1fr))", gap: 12 }}>
-            {safeMetas.map((m) => {
-              const p = Math.min(100, (m.atual / m.valor) * 100);
-              return (
-                <div key={m.id} style={{ ...crd, borderTop: "3px solid " + (p >= 100 ? C.green : C.navy) }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 10 }}>
-                    <div>
-                      <div style={{ fontWeight: 600, fontSize: 14, color: C.navy }}>{m.nome}</div>
-                      <div style={{ fontSize: 11, color: C.grayD }}>{m.prazo}</div>
+            {/* Modal para criar/editar meta */}
+            {metaModalAberto && (
+              <div className="modal-overlay" onClick={() => setMetaModalAberto(false)}>
+                <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ padding: "1.5rem", maxWidth: 450 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+                    <h3 style={{ fontSize: 18, fontWeight: 600, color: C.navy, margin: 0 }}>
+                      {metaEditando ? "Editar Meta" : "Nova Meta"}
+                    </h3>
+                    <button onClick={() => setMetaModalAberto(false)} style={btnI}>
+                      <i className="ti ti-x" style={{ fontSize: 20, color: C.grayD }} />
+                    </button>
+                  </div>
+
+                  <div style={{ marginBottom: 12 }}>
+                    <label style={lab}>Nome da Meta *</label>
+                    <input type="text" value={metaForm.nome} onChange={(e) => setMetaForm(f => ({ ...f, nome: e.target.value }))} placeholder="Ex: Viagem dos sonhos, Casa própria, Aposentadoria..." style={inp} />
+                  </div>
+
+                  <div style={{ marginBottom: 12 }}>
+                    <label style={lab}>Valor da Meta (R$) *</label>
+                    <input type="number" min="0" step="0.01" value={metaForm.valor} onChange={(e) => setMetaForm(f => ({ ...f, valor: parseFloat(e.target.value) || 0 }))} placeholder="0,00" style={inp} />
+                  </div>
+
+                  <div style={{ marginBottom: 12 }}>
+                    <label style={lab}>Valor Atual (R$)</label>
+                    <input type="number" min="0" step="0.01" value={metaForm.atual} onChange={(e) => setMetaForm(f => ({ ...f, atual: parseFloat(e.target.value) || 0 }))} placeholder="0,00" style={inp} />
+                  </div>
+
+                  <div style={{ marginBottom: 12 }}>
+                    <label style={lab}>Prazo</label>
+                    <input type="text" value={metaForm.prazo} onChange={(e) => setMetaForm(f => ({ ...f, prazo: e.target.value }))} placeholder="Ex: Dez/2025, 31/12/2025, 6 meses..." style={inp} />
+                  </div>
+
+                  <div style={{ marginBottom: 20 }}>
+                    <label style={lab}>Cor da Meta</label>
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                      {[
+                        { nome: "navy", cor: C.navy },
+                        { nome: "green", cor: C.green },
+                        { nome: "purple", cor: C.purple },
+                        { nome: "amber", cor: C.amber },
+                        { nome: "teal", cor: C.teal },
+                        { nome: "orange", cor: C.orange },
+                        { nome: "red", cor: C.red }
+                      ].map((corOption) => (
+                        <button
+                          key={corOption.nome}
+                          onClick={() => setMetaForm(f => ({ ...f, cor: corOption.nome }))}
+                          style={{
+                            width: 36,
+                            height: 36,
+                            borderRadius: 10,
+                            background: corOption.cor,
+                            border: metaForm.cor === corOption.nome ? "3px solid #1E293B" : "1px solid " + C.border,
+                            cursor: "pointer",
+                            transform: metaForm.cor === corOption.nome ? "scale(1.05)" : "scale(1)",
+                            transition: "all 0.2s"
+                          }}
+                          title={corOption.nome}
+                        />
+                      ))}
                     </div>
-                    <div style={{ fontSize: 18, fontWeight: 700, color: p >= 100 ? C.green : C.navy }}>{Math.round(p)}%</div>
                   </div>
-                  <Bar pct={p} color={p >= 100 ? C.green : C.navy} />
-                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: C.grayD, margin: "8px 0 12px" }}>
-                    <span>{fmt(m.atual)}</span>
-                    <span>Meta: {fmt(m.valor)}</span>
-                  </div>
-                  <div style={{ display: "flex", gap: 6 }}>
-                    <input type="number" min="0" id={"mi-" + m.id} placeholder="Valor" style={{ ...inp, flex: 1 }} />
-                    <button onClick={() => {
-                      const el = document.getElementById("mi-" + m.id);
-                      const v = parseFloat(el.value);
-                      if (!isNaN(v) && v > 0) {
-                        updMeta(m.id, v);
-                        el.value = "";
-                      }
-                    }} style={btnP}>Aportar</button>
+
+                  <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                    <button onClick={() => setMetaModalAberto(false)} style={{ ...btnP, background: C.grayD }}>Cancelar</button>
+                    <button onClick={salvarMeta} disabled={!metaForm.nome.trim() || metaForm.valor <= 0} style={{ ...btnS }}>
+                      <i className={"ti " + (metaEditando ? "ti-check" : "ti-device-floppy")} />
+                      {metaEditando ? "Atualizar" : "Salvar"}
+                    </button>
                   </div>
                 </div>
-              );
-            })}
+              </div>
+            )}
           </div>
         )}
 
+        {/* ========== CATEGORIAS ========== */}
         {aba === "categorias" && (
           <GerenciarCategorias 
             token={token} 
-            catsR={catsRList} 
-            catsD={catsDList} 
             onCategoriasChange={() => {
-              // Recarregar categorias quando mudar
               sb("/categorias?order=ordem.asc", { token })
                 .then(data => {
                   if (Array.isArray(data)) setCategorias(data);
@@ -1190,11 +1442,12 @@ function Dashboard({ session, onLogout }) {
           />
         )}
 
+        {/* ========== IA ========== */}
         {aba === "ia" && (
           <div style={{ animation: "fadeUp .4s ease" }}>
             <div style={{ ...crd, marginBottom: 12 }}>
               <div style={{ fontWeight: 600, fontSize: 14, color: C.navy }}>Consultora IA</div>
-              <div style={{ fontSize: 11, color: C.grayD }}>{safeLanc.length} lançamentos · {parcelados.length} parcelas</div>
+              <div style={{ fontSize: 11, color: C.grayD }}>{safeLanc.length} lançamentos</div>
             </div>
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12 }}>
               {["Saúde financeira", "Acelerar reserva", "Investir mais?", "Dependência CLT", "Impacto parcelas", "Financiamento?"].map((s) => (
@@ -1222,8 +1475,7 @@ function Dashboard({ session, onLogout }) {
     </div>
   );
 }
-
-/* ════ LANDING ════ */
+              /* ════ LANDING ════ */
 function Landing({ onEnter }) {
   return (
     <div style={{ color: "#1E293B" }}>
