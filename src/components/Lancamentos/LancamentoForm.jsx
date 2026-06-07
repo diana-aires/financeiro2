@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { supabase } from '../../services/supabase';
+import { sb } from '../../services/supabase';
 import { C, styles } from '../../styles/theme';
 import { CARTOES } from '../../utils/constants';
 
