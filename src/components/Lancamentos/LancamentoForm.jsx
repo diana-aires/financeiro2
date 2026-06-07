@@ -2,9 +2,9 @@ import { useState, useEffect } from 'react';
 import sb from '../../services/supabase';
 import { C, styles } from '../../styles/theme';
 
-export default function LancamentoForm({ 
+export default function LancamentoForm({
   form, setForm, editId, saving, showParcela, setShowParcela,
-  catsRList, catsDList, cartoes, setCartoes, salvar, cancelarEdicao, toast, token, uid 
+  catsRList, catsDList, cartoes, setCartoes, salvar, cancelarEdicao, toast, token, uid
 }) {
   const [showModal, setShowModal] = useState(false);
   const [novoCartaoNome, setNovoCartaoNome] = useState('');
@@ -23,9 +23,7 @@ export default function LancamentoForm({
   };
 
   useEffect(() => {
-    if (token && uid) {
-      carregarCartoes();
-    }
+    if (token && uid) carregarCartoes();
   }, [token, uid]);
 
   const handleAdicionarCartao = async () => {
@@ -35,7 +33,7 @@ export default function LancamentoForm({
     }
 
     const cartaoNome = novoCartaoNome.trim();
-    
+
     if (cartoes.includes(cartaoNome)) {
       toast(`⚠️ Cartão "${cartaoNome}" já existe!`);
       return;
@@ -44,13 +42,21 @@ export default function LancamentoForm({
     setSavingCartao(true);
 
     try {
-      const result = await sb("/cartoes", { 
-        method: "POST", 
-        token, 
+      const result = await sb("/cartoes", {
+        method: "POST",
+        token,
         body: { nome: cartaoNome, user_id: uid, ativo: true }
       });
 
-      if (result && (result.id || result.success === true)) {
+      // CORRIGIDO: sb() com Prefer:return=representation retorna array do Supabase,
+      // não objeto direto. A validação anterior só aceitava result.id ou result.success===true,
+      // ignorando o caso mais comum: array com o registro criado.
+      const sucesso =
+        (Array.isArray(result) && result.length > 0) ||  // ← caso normal: [{id, nome, ...}]
+        (result && result.id) ||                          // ← objeto direto
+        (result && result.success === true);              // ← fallback do sb() em 201 vazio
+
+      if (sucesso) {
         await carregarCartoes();
         setForm((f) => ({ ...f, cartao: cartaoNome }));
         toast(`✅ Cartão "${cartaoNome}" adicionado!`);
@@ -71,13 +77,21 @@ export default function LancamentoForm({
     <div style={styles.card}>
       <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 12 }}>
         <span style={{ fontWeight: 600, fontSize: 13, color: C.navy }}>{editId ? "Editando" : "Novo lançamento"}</span>
-        {editId && <button onClick={cancelarEdicao} style={{ fontSize: 12, color: C.red, background: "none", border: "none", cursor: "pointer" }}>Cancelar</button>}
+        {editId && (
+          <button onClick={cancelarEdicao} style={{ fontSize: 12, color: C.red, background: "none", border: "none", cursor: "pointer" }}>
+            Cancelar
+          </button>
+        )}
       </div>
-      
+
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(130px,1fr))", gap: 8, marginBottom: 10 }}>
         <div>
           <label style={styles.label}>Tipo</label>
-          <select value={form.tipo} onChange={(e) => setForm((f) => ({ ...f, tipo: e.target.value, cat: e.target.value === "receita" ? catsRList[0] : catsDList[0] }))} style={styles.input}>
+          <select
+            value={form.tipo}
+            onChange={(e) => setForm((f) => ({ ...f, tipo: e.target.value, cat: e.target.value === "receita" ? catsRList[0] : catsDList[0] }))}
+            style={styles.input}
+          >
             <option value="receita">Receita</option>
             <option value="despesa">Despesa</option>
           </select>
@@ -102,12 +116,22 @@ export default function LancamentoForm({
         </div>
         <div style={{ gridColumn: "1 / -1" }}>
           <label style={styles.label}>Descrição</label>
-          <input type="text" placeholder="Ex: Consultoria" value={form.descricao} onChange={(e) => setForm((f) => ({ ...f, descricao: e.target.value }))} style={styles.input} onKeyDown={(e) => e.key === "Enter" && salvar()} />
+          <input
+            type="text"
+            placeholder="Ex: Consultoria"
+            value={form.descricao}
+            onChange={(e) => setForm((f) => ({ ...f, descricao: e.target.value }))}
+            style={styles.input}
+            onKeyDown={(e) => e.key === "Enter" && salvar()}
+          />
         </div>
       </div>
 
       <div style={{ marginBottom: 12 }}>
-        <button onClick={() => setShowParcela(!showParcela)} style={{ fontSize: 12, color: C.navy, fontWeight: 500, background: "none", border: "none", cursor: "pointer" }}>
+        <button
+          onClick={() => setShowParcela(!showParcela)}
+          style={{ fontSize: 12, color: C.navy, fontWeight: 500, background: "none", border: "none", cursor: "pointer" }}
+        >
           {showParcela ? "▾" : "▸"} Parcelamento
         </button>
         {showParcela && (
@@ -127,7 +151,11 @@ export default function LancamentoForm({
                   <option value="">Selecione</option>
                   {cartoes.map((c) => <option key={c} value={c}>{c}</option>)}
                 </select>
-                <button onClick={() => setShowModal(true)} style={{ ...styles.buttonPrimary, padding: "6px 10px", borderRadius: 8 }} title="Adicionar novo cartão">
+                <button
+                  onClick={() => setShowModal(true)}
+                  style={{ ...styles.buttonPrimary, padding: "6px 10px", borderRadius: 8 }}
+                  title="Adicionar novo cartão"
+                >
                   <i className="ti ti-plus" style={{ fontSize: 12 }} />
                 </button>
               </div>
@@ -137,93 +165,63 @@ export default function LancamentoForm({
       </div>
 
       <button onClick={salvar} disabled={saving} style={{ ...styles.buttonPrimary, padding: "9px 20px", borderRadius: 10 }}>
-        {saving ? <i className="ti ti-loader-2" style={{ animation: "spin 1s linear infinite" }} /> : <i className={"ti " + (editId ? "ti-check" : "ti-device-floppy")} />}
+        {saving
+          ? <i className="ti ti-loader-2" style={{ animation: "spin 1s linear infinite" }} />
+          : <i className={"ti " + (editId ? "ti-check" : "ti-device-floppy")} />
+        }
         {editId ? "Atualizar" : "Salvar"}
       </button>
 
-      {/* Modal */}
+      {/* Modal novo cartão */}
       {showModal && (
-        <div style={{
-          position: "fixed",
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          backgroundColor: "rgba(0, 0, 0, 0.5)",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          zIndex: 1000
-        }} onClick={() => !savingCartao && setShowModal(false)}>
-          <div style={{
-            backgroundColor: "white",
-            borderRadius: 12,
-            padding: 24,
-            width: "90%",
-            maxWidth: 400,
-            boxShadow: "0 4px 20px rgba(0,0,0,0.15)"
-          }} onClick={(e) => e.stopPropagation()}>
+        <div
+          style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}
+          onClick={() => !savingCartao && setShowModal(false)}
+        >
+          <div
+            style={{ backgroundColor: "white", borderRadius: 12, padding: 24, width: "90%", maxWidth: 400, boxShadow: "0 4px 20px rgba(0,0,0,0.15)" }}
+            onClick={(e) => e.stopPropagation()}
+          >
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
               <h3 style={{ margin: 0, fontSize: 18, fontWeight: 600, color: C.navy }}>Novo Cartão</h3>
-              <button onClick={() => !savingCartao && setShowModal(false)} style={{
-                background: "none",
-                border: "none",
-                fontSize: 20,
-                cursor: "pointer",
-                color: C.gray,
-                opacity: savingCartao ? 0.5 : 1
-              }} disabled={savingCartao}>✕</button>
+              <button
+                onClick={() => !savingCartao && setShowModal(false)}
+                style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: C.gray, opacity: savingCartao ? 0.5 : 1 }}
+                disabled={savingCartao}
+              >✕</button>
             </div>
-            
+
             <div style={{ marginBottom: 20 }}>
               <label style={styles.label}>Nome do Cartão</label>
-              <input 
-                type="text" 
+              <input
+                type="text"
                 value={novoCartaoNome}
                 onChange={(e) => setNovoCartaoNome(e.target.value)}
-                placeholder="Ex: Nubank, Itaú, etc."
+                placeholder="Ex: Nubank, Itaú..."
                 style={styles.input}
                 onKeyDown={(e) => e.key === "Enter" && handleAdicionarCartao()}
                 autoFocus
                 disabled={savingCartao}
               />
             </div>
-            
+
             <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-              <button 
+              <button
                 onClick={() => setShowModal(false)}
                 disabled={savingCartao}
-                style={{
-                  padding: "8px 16px",
-                  borderRadius: 6,
-                  border: "1px solid " + C.border,
-                  backgroundColor: "white",
-                  cursor: savingCartao ? "not-allowed" : "pointer",
-                  color: C.gray,
-                  opacity: savingCartao ? 0.5 : 1
-                }}
+                style={{ padding: "8px 16px", borderRadius: 6, border: "1px solid " + C.border, backgroundColor: "white", cursor: savingCartao ? "not-allowed" : "pointer", color: C.gray, opacity: savingCartao ? 0.5 : 1 }}
               >
                 Cancelar
               </button>
-              <button 
+              <button
                 onClick={handleAdicionarCartao}
                 disabled={savingCartao || !novoCartaoNome.trim()}
-                style={{
-                  ...styles.buttonPrimary,
-                  padding: "8px 16px",
-                  borderRadius: 6,
-                  opacity: (savingCartao || !novoCartaoNome.trim()) ? 0.7 : 1,
-                  cursor: (savingCartao || !novoCartaoNome.trim()) ? "not-allowed" : "pointer"
-                }}
+                style={{ ...styles.buttonPrimary, padding: "8px 16px", borderRadius: 6, opacity: (savingCartao || !novoCartaoNome.trim()) ? 0.7 : 1, cursor: (savingCartao || !novoCartaoNome.trim()) ? "not-allowed" : "pointer" }}
               >
-                {savingCartao ? (
-                  <>
-                    <i className="ti ti-loader-2" style={{ animation: "spin 1s linear infinite", marginRight: 6 }} />
-                    Salvando...
-                  </>
-                ) : (
-                  "Adicionar"
-                )}
+                {savingCartao
+                  ? <><i className="ti ti-loader-2" style={{ animation: "spin 1s linear infinite", marginRight: 6 }} />Salvando...</>
+                  : "Adicionar"
+                }
               </button>
             </div>
           </div>
