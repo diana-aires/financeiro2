@@ -31,8 +31,6 @@ export async function safeFetch(url, opts) {
 
 export async function sb(path, opts = {}) {
   const { method = "GET", body, token } = opts;
-  
-  // Garantir que o token está sendo usado corretamente
   const authToken = token || supabaseConfig.anonKey;
   
   const headers = {
@@ -41,7 +39,6 @@ export async function sb(path, opts = {}) {
     "Authorization": `Bearer ${authToken}`,
   };
   
-  // Para POST e PATCH, pedir para retornar os dados
   if (method === "POST" || method === "PATCH") {
     headers["Prefer"] = "return=representation";
   }
@@ -49,8 +46,6 @@ export async function sb(path, opts = {}) {
   try {
     const url = supabaseConfig.url + "/rest/v1" + path;
     console.log(`📡 ${method} ${url}`);
-    console.log(`📡 Token sendo usado: ${authToken ? authToken.substring(0, 30) + '...' : 'NENHUM TOKEN'}`);
-    if (body) console.log(`📡 Body:`, body);
     
     const response = await fetch(url, {
       method,
@@ -58,35 +53,26 @@ export async function sb(path, opts = {}) {
       body: body ? JSON.stringify(body) : undefined,
     });
     
-    console.log(`📡 Resposta: ${response.status} ${response.statusText}`);
+    console.log(`📡 Resposta: ${response.status}`);
     
-    // Para respostas de sucesso sem conteúdo
     if (response.status === 204) {
-      console.log(`✅ ${method} realizado com sucesso (sem conteúdo)`);
       return { success: true };
     }
     
-    // Para respostas de criação
     if (response.status === 201) {
       const text = await response.text();
       if (text && text.trim()) {
         try {
-          const data = JSON.parse(text);
-          console.log(`✅ ${method} realizado com sucesso, dados:`, data);
-          return data;
+          return JSON.parse(text);
         } catch(e) {
-          console.log(`✅ ${method} realizado com sucesso, sem dados retornados`);
           return { success: true };
         }
       }
       return { success: true };
     }
     
-    // Para erros
     if (!response.ok) {
       const errorText = await response.text();
-      console.error('❌ Resposta de erro:', response.status, errorText);
-      
       let errorMessage;
       try {
         const errorJson = JSON.parse(errorText);
@@ -94,28 +80,25 @@ export async function sb(path, opts = {}) {
       } catch(e) {
         errorMessage = errorText || `HTTP ${response.status}`;
       }
-      
       throw new Error(errorMessage);
     }
     
-    // Para GET e outras requisições com resposta
     const text = await response.text();
     if (!text || text.trim() === '' || text === 'null') {
       return method === "DELETE" ? { success: true } : [];
     }
     
     try {
-      const json = JSON.parse(text);
-      console.log(`📡 Dados recebidos:`, Array.isArray(json) ? `${json.length} itens` : json);
-      return json;
+      return JSON.parse(text);
     } catch(e) {
-      console.error('❌ Erro ao parsear JSON:', e, 'Texto:', text);
+      console.error('❌ Erro ao parsear JSON:', e);
       return [];
     }
     
   } catch (error) {
     console.error('❌ Erro crítico na requisição Supabase:', error);
-    // Relançar o erro para ser tratado pelo código chamador
     throw error;
   }
 }
+
+export default sb;
