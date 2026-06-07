@@ -296,9 +296,13 @@ function toastError(message) {
   function toast(m) { setToastMsg(m); setTimeout(() => setToastMsg(""), 3000); }
 
   useEffect(() => {
-    if (!token) return;
-    carregarCategorias();
-  }, [token]);
+  console.log('🚀 Dashboard inicializado');
+  console.log('📊 Estado atual:', {
+    totalLancamentos: lanc.length,
+    totalMetas: metas.length,
+    categoriasCount: categorias.length
+  });
+}, [lanc.length, metas.length, categorias.length]);
 
   async function carregarCategorias() {
     setLoading(true);
