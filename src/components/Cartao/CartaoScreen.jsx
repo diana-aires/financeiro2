@@ -3,9 +3,9 @@ import { C, styles } from '../../styles/theme';
 import { fmt } from '../../utils/formatters';
 import { Bar } from '../Common/Bar';
 import { ImportFaturaModal } from './ImportFaturaModal';
-import { sb } from '../../services/supabase';
+import sb from '../../services/supabase';
 
-export function CartaoScreen({ lancamentos, token, cartoes, setCartoes, toast, onLancamentosUpdate }) {
+export function CartaoScreen({ lancamentos, token, session, cartoes, setCartoes, toast, onLancamentosUpdate }) {
   const [showImportModal, setShowImportModal] = useState(false);
   
   const parceladosAtivos = lancamentos.filter(l => 
@@ -212,3 +212,5 @@ export function CartaoScreen({ lancamentos, token, cartoes, setCartoes, toast, o
     </div>
   );
 }
+
+export default CartaoScreen;
