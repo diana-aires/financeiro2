@@ -103,6 +103,8 @@ const METAS_DEF = [
   { nome: "Investimentos Anuais", valor: 24000, atual: 0, prazo: "Dez/2025" },
 ];
 const CARTOES = ["Nubank", "Inter", "C6", "Itaú", "Bradesco", "Santander", "BB", "Caixa", "Outro"];
+const ICONES = ["ti-wallet", "ti-home", "ti-bolt", "ti-wifi", "ti-phone", "ti-brand-spotify", "ti-shopping-cart", "ti-bus", "ti-plane", "ti-movie", "ti-shopping-bag", "ti-chart-line", "ti-heart", "ti-makeup", "ti-package", "ti-gift", "ti-credit-card", "ti-building-bank", "ti-dots", "ti-run", "ti-school", "ti-shield", "ti-brand-netflix"];
+
 const fmt = (v) => "R$ " + Number(v).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const fmtPct = (v) => (Number(v) * 100).toFixed(1) + "%";
 const today = () => new Date().toISOString().split("T")[0];
@@ -121,17 +123,8 @@ function Bar({ pct, color }) {
   );
 }
 
-const BLANK = { 
-  tipo: "receita", 
-  cat: CATS_R[0], 
-  descricao: "", 
-  valor: "", 
-  data_compra: today(), 
-  data_vencimento: today(),
-  parcelas: "", 
-  parcela_atual: "", 
-  cartao: "" 
-};
+const BLANK = { tipo: "receita", cat: CATS_R[0], descricao: "", valor: "", data_compra: today(), data_vencimento: today(), parcelas: "", parcela_atual: "", cartao: "" };
+const CATEGORIA_BLANK = { tipo: "despesa", nome: "", classificacao: "fixa", icone: "ti-tag", ativo: true };
 
 const CSS = `
 @keyframes spin{to{transform:rotate(360deg)}}
@@ -146,7 +139,7 @@ const CSS = `
 .modal-content{background:white;border-radius:20px;max-width:500px;width:90%;max-height:90vh;overflow-y:auto}
 `;
 
-/* ════ AUTH SCREEN ════ */
+/* ════ AUTH ════ */
 function AuthScreen({ onAuth }) {
   const [mode, setMode] = useState("login");
   const [email, setEmail] = useState("");
@@ -232,7 +225,272 @@ function AuthScreen({ onAuth }) {
   );
 }
 
-/* ════ DASHBOARD PRINCIPAL ════ */
+/* ════ GERENCIAMENTO DE CATEGORIAS ════ */
+function GerenciarCategorias({ token, onCategoriasChange }) {
+  const [categorias, setCategorias] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [showModal, setShowModal] = useState(false);
+  const [editando, setEditando] = useState(null);
+  const [form, setForm] = useState({ ...CATEGORIA_BLANK });
+  const [toastMsg, setToastMsg] = useState("");
+  const [filtroTipo, setFiltroTipo] = useState("todos");
+  const [filtroClassificacao, setFiltroClassificacao] = useState("todos");
+
+  function toast(m) { setToastMsg(m); setTimeout(() => setToastMsg(""), 3000); }
+
+  useEffect(() => {
+    if (!token) return;
+    carregarCategorias();
+  }, [token]);
+
+  async function carregarCategorias() {
+    setLoading(true);
+    const data = await sb("/categorias?order=ordem.asc", { token });
+    setCategorias(Array.isArray(data) ? data : []);
+    setLoading(false);
+  }
+
+  async function salvarCategoria() {
+    if (!form.nome.trim()) {
+      toast("Preencha o nome da categoria");
+      return;
+    }
+
+    const obj = {
+      tipo: form.tipo,
+      nome: form.nome.trim(),
+      classificacao: form.classificacao,
+      icone: form.icone,
+      ativo: true,
+      ordem: categorias.filter(c => c.tipo === form.tipo).length + 1
+    };
+
+    try {
+      if (editando) {
+        await sb("/categorias?id=eq." + editando.id, { method: "PATCH", token, body: obj });
+        toast("Categoria atualizada!");
+      } else {
+        await sb("/categorias", { method: "POST", token, body: obj });
+        toast("Categoria adicionada!");
+      }
+      await carregarCategorias();
+      if (onCategoriasChange) onCategoriasChange();
+      fecharModal();
+    } catch (e) {
+      console.error('Erro:', e);
+      toast("Erro: " + e.message);
+    }
+  }
+
+  async function desativarCategoria(cat) {
+    if (window.confirm(`Desativar a categoria "${cat.nome}"?`)) {
+      try {
+        await sb("/categorias?id=eq." + cat.id, { method: "PATCH", token, body: { ativo: false } });
+        await carregarCategorias();
+        if (onCategoriasChange) onCategoriasChange();
+        toast("Categoria desativada!");
+      } catch (e) {
+        toast("Erro: " + e.message);
+      }
+    }
+  }
+
+  async function reativarCategoria(cat) {
+    try {
+      await sb("/categorias?id=eq." + cat.id, { method: "PATCH", token, body: { ativo: true } });
+      await carregarCategorias();
+      if (onCategoriasChange) onCategoriasChange();
+      toast("Categoria reativada!");
+    } catch (e) {
+      toast("Erro: " + e.message);
+    }
+  }
+
+  function abrirModal(cat = null) {
+    if (cat) {
+      setEditando(cat);
+      setForm({
+        tipo: cat.tipo,
+        nome: cat.nome,
+        classificacao: cat.classificacao,
+        icone: cat.icone || "ti-tag",
+        ativo: cat.ativo
+      });
+    } else {
+      setEditando(null);
+      setForm({ ...CATEGORIA_BLANK });
+    }
+    setShowModal(true);
+  }
+
+  function fecharModal() {
+    setShowModal(false);
+    setEditando(null);
+    setForm({ ...CATEGORIA_BLANK });
+  }
+
+  const categoriasFiltradas = categorias.filter(cat => {
+    if (filtroTipo !== "todos" && cat.tipo !== filtroTipo) return false;
+    if (filtroClassificacao !== "todos" && cat.classificacao !== filtroClassificacao) return false;
+    return true;
+  });
+
+  const categoriasReceita = categoriasFiltradas.filter(c => c.tipo === "receita" && c.ativo);
+  const categoriasDespesa = categoriasFiltradas.filter(c => c.tipo === "despesa" && c.ativo);
+  const categoriasInativas = categorias.filter(c => !c.ativo);
+
+  return (
+    <div style={{ animation: "fadeUp .4s ease" }}>
+      {toastMsg && <div style={{ position: "fixed", bottom: 24, right: 24, background: C.navy, color: "#fff", borderRadius: 10, padding: "10px 18px", fontSize: 13, fontWeight: 500, zIndex: 999 }}>{toastMsg}</div>}
+      
+      <div style={{ ...crd, marginBottom: 14 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+          <div>
+            <div style={{ fontWeight: 600, fontSize: 14, color: C.navy }}>Gerenciar Categorias</div>
+            <div style={{ fontSize: 11, color: C.grayD }}>Adicione, edite ou desative categorias de receitas e despesas</div>
+          </div>
+          <button onClick={() => abrirModal()} style={{ ...btnS, gap: 6 }}>
+            <i className="ti ti-plus" style={{ fontSize: 14 }} />
+            Nova Categoria
+          </button>
+        </div>
+
+        <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
+          <select value={filtroTipo} onChange={(e) => setFiltroTipo(e.target.value)} style={{ ...inp, width: "auto" }}>
+            <option value="todos">Todos os tipos</option>
+            <option value="receita">Receitas</option>
+            <option value="despesa">Despesas</option>
+          </select>
+          <select value={filtroClassificacao} onChange={(e) => setFiltroClassificacao(e.target.value)} style={{ ...inp, width: "auto" }}>
+            <option value="todos">Todas classificações</option>
+            <option value="fixa">Fixas</option>
+            <option value="variavel">Variáveis</option>
+          </select>
+        </div>
+
+        {loading ? (
+          <div style={{ textAlign: "center", padding: "2rem", color: C.grayD }}>
+            <i className="ti ti-loader-2" style={{ animation: "spin 1s linear infinite", fontSize: 24 }} />
+          </div>
+        ) : (
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(300px,1fr))", gap: 16 }}>
+            <div style={{ background: C.slate, borderRadius: 12, padding: 12 }}>
+              <div style={{ fontWeight: 600, fontSize: 13, color: C.green, marginBottom: 12, display: "flex", alignItems: "center", gap: 6 }}>
+                <i className="ti ti-trending-up" />
+                Receitas ({categoriasReceita.length})
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {categoriasReceita.map(cat => (
+                  <div key={cat.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "6px 8px", background: C.white, borderRadius: 8, border: "1px solid " + C.border }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <i className={cat.icone || "ti-tag"} style={{ fontSize: 14, color: C.green }} />
+                      <span style={{ fontSize: 12, fontWeight: 500 }}>{cat.nome}</span>
+                      <span style={{ fontSize: 10, padding: "2px 6px", borderRadius: 99, background: cat.classificacao === "fixa" ? C.navy + "20" : C.purple + "20", color: cat.classificacao === "fixa" ? C.navy : C.purple }}>
+                        {cat.classificacao}
+                      </span>
+                    </div>
+                    <div style={{ display: "flex", gap: 4 }}>
+                      <button onClick={() => abrirModal(cat)} style={btnI}><i className="ti ti-edit" style={{ fontSize: 12, color: C.navy }} /></button>
+                      <button onClick={() => desativarCategoria(cat)} style={btnI}><i className="ti ti-trash" style={{ fontSize: 12, color: C.red }} /></button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div style={{ background: C.slate, borderRadius: 12, padding: 12 }}>
+              <div style={{ fontWeight: 600, fontSize: 13, color: C.red, marginBottom: 12, display: "flex", alignItems: "center", gap: 6 }}>
+                <i className="ti ti-trending-down" />
+                Despesas ({categoriasDespesa.length})
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {categoriasDespesa.map(cat => (
+                  <div key={cat.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "6px 8px", background: C.white, borderRadius: 8, border: "1px solid " + C.border }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <i className={cat.icone || "ti-tag"} style={{ fontSize: 14, color: C.red }} />
+                      <span style={{ fontSize: 12, fontWeight: 500 }}>{cat.nome}</span>
+                      <span style={{ fontSize: 10, padding: "2px 6px", borderRadius: 99, background: cat.classificacao === "fixa" ? C.navy + "20" : C.purple + "20", color: cat.classificacao === "fixa" ? C.navy : C.purple }}>
+                        {cat.classificacao}
+                      </span>
+                    </div>
+                    <div style={{ display: "flex", gap: 4 }}>
+                      <button onClick={() => abrirModal(cat)} style={btnI}><i className="ti ti-edit" style={{ fontSize: 12, color: C.navy }} /></button>
+                      <button onClick={() => desativarCategoria(cat)} style={btnI}><i className="ti ti-trash" style={{ fontSize: 12, color: C.red }} /></button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {categoriasInativas.length > 0 && (
+          <div style={{ marginTop: 16, padding: 12, background: C.slate, borderRadius: 12 }}>
+            <div style={{ fontWeight: 600, fontSize: 12, color: C.grayD, marginBottom: 8 }}>Categorias Inativas</div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+              {categoriasInativas.map(cat => (
+                <div key={cat.id} style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 8px", background: C.white, borderRadius: 6, border: "1px solid " + C.border }}>
+                  <span style={{ fontSize: 11, color: C.grayD }}>{cat.nome}</span>
+                  <button onClick={() => reativarCategoria(cat)} style={{ ...btnI, color: C.green }}><i className="ti ti-reload" style={{ fontSize: 11 }} /></button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {showModal && (
+        <div className="modal-overlay" onClick={fecharModal}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ padding: "1.5rem" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+              <h3 style={{ fontSize: 18, fontWeight: 600, color: C.navy, margin: 0 }}>{editando ? "Editar Categoria" : "Nova Categoria"}</h3>
+              <button onClick={fecharModal} style={{ ...btnI }}><i className="ti ti-x" style={{ fontSize: 20, color: C.grayD }} /></button>
+            </div>
+
+            <div style={{ marginBottom: 12 }}>
+              <label style={lab}>Tipo</label>
+              <select value={form.tipo} onChange={(e) => setForm(f => ({ ...f, tipo: e.target.value }))} style={inp}>
+                <option value="receita">Receita</option>
+                <option value="despesa">Despesa</option>
+              </select>
+            </div>
+
+            <div style={{ marginBottom: 12 }}>
+              <label style={lab}>Nome da Categoria</label>
+              <input type="text" value={form.nome} onChange={(e) => setForm(f => ({ ...f, nome: e.target.value }))} placeholder="Ex: Academia, Streaming, ..." style={inp} />
+            </div>
+
+            <div style={{ marginBottom: 12 }}>
+              <label style={lab}>Classificação</label>
+              <select value={form.classificacao} onChange={(e) => setForm(f => ({ ...f, classificacao: e.target.value }))} style={inp}>
+                <option value="fixa">Fixa (mensal previsível)</option>
+                <option value="variavel">Variável (valor pode mudar)</option>
+              </select>
+            </div>
+
+            <div style={{ marginBottom: 20 }}>
+              <label style={lab}>Ícone</label>
+              <select value={form.icone} onChange={(e) => setForm(f => ({ ...f, icone: e.target.value }))} style={inp}>
+                {ICONES.map(icone => (
+                  <option key={icone} value={icone}>
+                    {icone.replace("ti-", "")}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <button onClick={fecharModal} style={{ ...btnP, background: C.grayD }}>Cancelar</button>
+              <button onClick={salvarCategoria} style={btnS}>Salvar</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ════ DASHBOARD ════ */
 function Dashboard({ session, onLogout }) {
   const [aba, setAba] = useState("dashboard");
   const [lanc, setLanc] = useState([]);
@@ -254,12 +512,21 @@ function Dashboard({ session, onLogout }) {
 
   function toast(m) { setToastMsg(m); setTimeout(() => setToastMsg(""), 3000); }
 
-  const calcularDataVencimento = (dataCompra, parcelaAtual, parcelas) => {
+  const calcularDataVencimento = (dataCompra, parcelaAtual) => {
     if (!dataCompra || !parcelaAtual) return dataCompra;
     const data = new Date(dataCompra);
     data.setMonth(data.getMonth() + (parcelaAtual - 1));
     return data.toISOString().split("T")[0];
   };
+
+  useEffect(() => {
+    if (!token) return;
+    sb("/categorias?order=ordem.asc", { token })
+      .then(data => {
+        if (Array.isArray(data)) setCategorias(data);
+      })
+      .catch(err => console.error('Erro ao carregar categorias:', err));
+  }, [token]);
 
   const safeLanc = useMemo(() => {
     if (!lanc) return [];
@@ -278,6 +545,15 @@ function Dashboard({ session, onLogout }) {
   const catsRList = catsRFromDB.length > 0 ? catsRFromDB : CATS_R;
   const catsDList = catsDFromDB.length > 0 ? catsDFromDB : CATS_D;
 
+  const tipoRFromDB = {};
+  const tipoDFromDB = {};
+  categorias.forEach(c => {
+    if (c.tipo === "receita") tipoRFromDB[c.nome] = c.classificacao;
+    if (c.tipo === "despesa") tipoDFromDB[c.nome] = c.classificacao;
+  });
+  const TIPO_R_DINAMICO = Object.keys(tipoRFromDB).length > 0 ? tipoRFromDB : TIPO_R;
+  const TIPO_D_DINAMICO = Object.keys(tipoDFromDB).length > 0 ? tipoDFromDB : TIPO_D;
+
   useEffect(() => {
     if (!token) return;
     setLoading(true);
@@ -285,11 +561,9 @@ function Dashboard({ session, onLogout }) {
     Promise.all([
       sb("/lancamentos?order=data_vencimento.desc", { token }),
       sb("/metas?order=id.asc", { token }),
-      sb("/categorias?order=ordem.asc", { token })
-    ]).then(([ls, ms, cats]) => {
+    ]).then(([ls, ms]) => {
       setLanc(Array.isArray(ls) ? ls : []);
       setMetas(Array.isArray(ms) ? ms : []);
-      setCategorias(Array.isArray(cats) ? cats : []);
       
       if (!ms || ms.length === 0) {
         sb("/metas", { method: "POST", token, body: METAS_DEF.map((m) => ({ ...m, user_id: uid })) })
@@ -307,9 +581,9 @@ function Dashboard({ session, onLogout }) {
   const tR = rec.reduce((s, l) => s + Number(l?.valor || 0), 0);
   const tD = desp.reduce((s, l) => s + Number(l?.valor || 0), 0);
   const saldo = tR - tD;
-  const rF = rec.filter((l) => TIPO_R[l?.cat] === "fixa").reduce((s, l) => s + Number(l?.valor || 0), 0);
-  const rV = rec.filter((l) => TIPO_R[l?.cat] === "variavel").reduce((s, l) => s + Number(l?.valor || 0), 0);
-  const dF = desp.filter((l) => TIPO_D[l?.cat] === "fixa").reduce((s, l) => s + Number(l?.valor || 0), 0);
+  const rF = rec.filter((l) => TIPO_R_DINAMICO[l?.cat] === "fixa").reduce((s, l) => s + Number(l?.valor || 0), 0);
+  const rV = rec.filter((l) => TIPO_R_DINAMICO[l?.cat] === "variavel").reduce((s, l) => s + Number(l?.valor || 0), 0);
+  const dF = desp.filter((l) => TIPO_D_DINAMICO[l?.cat] === "fixa").reduce((s, l) => s + Number(l?.valor || 0), 0);
   const inv = desp.filter((l) => l?.cat === "Investimento").reduce((s, l) => s + Number(l?.valor || 0), 0);
   const fin = desp.filter((l) => l?.cat === "Financiamento").reduce((s, l) => s + Number(l?.valor || 0), 0);
   const txP = tR > 0 ? saldo / tR : 0;
@@ -355,12 +629,7 @@ function Dashboard({ session, onLogout }) {
   
   function cancelEdit() { 
     setEditId(null); 
-    setForm({ 
-      ...BLANK, 
-      cat: form.tipo === "receita" ? catsRList[0] : catsDList[0],
-      data_compra: today(),
-      data_vencimento: today()
-    }); 
+    setForm({ ...BLANK, cat: form.tipo === "receita" ? catsRList[0] : catsDList[0] }); 
     setShowParcela(false); 
   }
 
@@ -373,7 +642,7 @@ function Dashboard({ session, onLogout }) {
     
     let dataVencimento = form.data_vencimento;
     if (form.parcelas && form.parcela_atual && !form.data_vencimento) {
-      dataVencimento = calcularDataVencimento(form.data_compra, parseInt(form.parcela_atual), parseInt(form.parcelas));
+      dataVencimento = calcularDataVencimento(form.data_compra, parseInt(form.parcela_atual));
     }
     
     const obj = { 
@@ -409,12 +678,7 @@ function Dashboard({ session, onLogout }) {
       console.error('Erro ao salvar:', e);
       toast("Erro: " + e.message); 
     }
-    setForm({ 
-      ...BLANK, 
-      cat: form.tipo === "receita" ? catsRList[0] : catsDList[0],
-      data_compra: today(),
-      data_vencimento: today()
-    }); 
+    setForm({ ...BLANK, cat: form.tipo === "receita" ? catsRList[0] : catsDList[0] }); 
     setEditId(null); 
     setShowParcela(false); 
     setSaving(false);
@@ -484,7 +748,7 @@ function Dashboard({ session, onLogout }) {
     if (!aiQ.trim()) return;
     setAiLoad(true); 
     setAiResp("");
-    const sys = `Consultor financeiro. Receita ${fmt(tR)}, despesas ${fmt(tD)}, saldo ${fmt(saldo)}, invest ${fmtPct(txI)}. Responda em português, máx 3 parágrafos.`;
+    const sys = `Consultor financeiro. Receita ${fmt(tR)}, despesas ${fmt(tD)}, saldo ${fmt(saldo)}. Responda em português, máx 3 parágrafos.`;
     try { 
       const r = await fetch("https://api.anthropic.com/v1/messages", { 
         method: "POST", 
@@ -510,6 +774,7 @@ function Dashboard({ session, onLogout }) {
     { id: "lancamentos", label: "Lançamentos", icon: "ti-list" },
     { id: "cartao", label: "Cartão", icon: "ti-credit-card" },
     { id: "metas", label: "Metas", icon: "ti-target" },
+    { id: "categorias", label: "Categorias", icon: "ti-tags" },
     { id: "ia", label: "IA", icon: "ti-sparkles" },
   ];
 
@@ -530,9 +795,7 @@ function Dashboard({ session, onLogout }) {
       <div style={{ background: C.white, borderBottom: "1px solid " + C.border, padding: "0 1rem", position: "sticky", top: 0, zIndex: 40 }}>
         <div style={{ maxWidth: 1100, margin: "0 auto", display: "flex", alignItems: "center", height: 52, gap: 8 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            <div style={{ width: 28, height: 28, borderRadius: 7, background: C.navy, display: "flex", alignItems: "center", justifyContent: "center" }}>
-              <i className="ti ti-chart-pie-2" style={{ color: "#fff", fontSize: 14 }} />
-            </div>
+            <div style={{ width: 28, height: 28, borderRadius: 7, background: C.navy, display: "flex", alignItems: "center", justifyContent: "center" }}><i className="ti ti-chart-pie-2" style={{ color: "#fff", fontSize: 14 }} /></div>
             <span style={{ fontWeight: 700, fontSize: 14, color: C.navy }}>FinancePro</span>
           </div>
           <div style={{ display: "flex", gap: 1, flex: 1, justifyContent: "center", flexWrap: "wrap" }}>
@@ -550,636 +813,420 @@ function Dashboard({ session, onLogout }) {
       <div style={{ maxWidth: 1100, margin: "0 auto", padding: "1.25rem" }}>
         
         {/* DASHBOARD */}
-        {/* DASHBOARD */}
-{aba === "dashboard" && (
-  <div style={{ animation: "fadeUp .4s ease" }}>
-    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(140px,1fr))", gap: 10, marginBottom: 14 }}>
-      {[
-        { l: "Receita", v: fmt(tR), c: C.green }, 
-        { l: "Despesas", v: fmt(tD), c: C.red }, 
-        { l: "Saldo", v: fmt(saldo), c: saldo >= 0 ? C.navy : C.red }, 
-        { l: "Investido", v: fmt(inv), c: C.purple }, 
-        { l: "Financiamento", v: fmt(fin), c: C.amber }
-      ].map((k) => (
-        <div key={k.l} style={{ ...crd, borderTop: "3px solid " + k.c, padding: "1rem" }}>
-          <div style={{ fontSize: 10, fontWeight: 600, color: C.grayD, textTransform: "uppercase", marginBottom: 6 }}>
-            {k.l}
-          </div>
-          <div style={{ fontSize: 18, fontWeight: 700, color: k.c }}>{k.v}</div>
-        </div>
-      ))}
-    </div>
-    
-    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(260px,1fr))", gap: 10, marginBottom: 14 }}>
-      <div style={crd}>
-        <div style={{ fontWeight: 600, fontSize: 13, color: C.navy, marginBottom: 12 }}>Receita</div>
-        {[
-          ["Fixa", rF, C.navy], 
-          ["Variável", rV, C.green]
-        ].map(([l, v, c]) => (
-          <div key={l} style={{ marginBottom: 10 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 4 }}>
-              <span style={{ color: C.grayD }}>{l}</span>
-              <span style={{ fontWeight: 600, color: c }}>
-                {tR > 0 ? ((v / tR) * 100).toFixed(1) : 0}%
-              </span>
-            </div>
-            <Bar pct={tR > 0 ? (v / tR) * 100 : 0} color={c} />
-          </div>
-        ))}
-      </div>
-      
-      <div style={crd}>
-        <div style={{ fontWeight: 600, fontSize: 13, color: C.navy, marginBottom: 12 }}>Indicadores</div>
-        {[
-          { l: "Poupança", v: fmtPct(txP), ok: txP >= .2 }, 
-          { l: "Investimento", v: fmtPct(txI), ok: txI >= .1 }, 
-          { l: "Fixas", v: fmtPct(cFx), ok: cFx <= .5 }, 
-          { l: "CLT", v: fmtPct(dC), ok: dC <= .7 }
-        ].map((k) => (
-          <div key={k.l} style={{ display: "flex", alignItems: "center", padding: "5px 0", borderBottom: "1px solid " + C.border }}>
-            <span style={{ flex: 1, fontSize: 12, color: C.grayD }}>{k.l}</span>
-            <span style={{ fontSize: 12, fontWeight: 600, color: k.ok ? C.green : C.amber }}>{k.v}</span>
-          </div>
-        ))}
-      </div>
-    </div>
-    
-    <div style={crd}>
-      <div style={{ fontWeight: 600, fontSize: 13, color: C.navy, marginBottom: 12 }}>Metas</div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))", gap: 10 }}>
-        {safeMetas.map((m) => {
-          const p = Math.min(100, (m.atual / m.valor) * 100);
-          return (
-            <div key={m.id} style={{ background: C.slate, borderRadius: 10, padding: 10, border: "1px solid " + C.border }}>
-              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
-                <span style={{ fontSize: 11, fontWeight: 600, color: C.navy }}>{m.nome}</span>
-                <span style={{ fontSize: 11, fontWeight: 700, color: p >= 100 ? C.green : C.navy }}>
-                  {Math.round(p)}%
-                </span>
-              </div>
-              <Bar pct={p} color={p >= 100 ? C.green : C.navy} />
-              <div style={{ fontSize: 10, color: C.grayD, marginTop: 4 }}>
-                {fmt(m.atual)} / {fmt(m.valor)}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  </div>
-)}
-
-{/* LANÇAMENTOS */}
-{aba === "lancamentos" && (
-  <div style={{ animation: "fadeUp .4s ease" }}>
-    {/* FORMULÁRIO DE LANÇAMENTO */}
-    <div style={{ ...crd, marginBottom: 14 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 12 }}>
-        <span style={{ fontWeight: 600, fontSize: 13, color: C.navy }}>
-          {editId ? "Editando" : "Novo lançamento"}
-        </span>
-        {editId && (
-          <button onClick={cancelEdit} style={{ fontSize: 12, color: C.red, background: "none", border: "none", cursor: "pointer" }}>
-            Cancelar
-          </button>
-        )}
-      </div>
-      
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(130px,1fr))", gap: 8, marginBottom: 10 }}>
-        <div>
-          <label style={lab}>Tipo</label>
-          <select 
-            value={form.tipo} 
-            onChange={(e) => setForm((f) => ({ 
-              ...f, 
-              tipo: e.target.value, 
-              cat: e.target.value === "receita" ? catsRList[0] : catsDList[0] 
-            }))} 
-            style={inp}
-          >
-            <option value="receita">Receita</option>
-            <option value="despesa">Despesa</option>
-          </select>
-        </div>
-        
-        <div>
-          <label style={lab}>Categoria</label>
-          <select 
-            value={form.cat} 
-            onChange={(e) => setForm((f) => ({ ...f, cat: e.target.value }))} 
-            style={inp}
-          >
-            {(form.tipo === "receita" ? catsRList : catsDList).map((c) => (
-              <option key={c}>{c}</option>
-            ))}
-          </select>
-        </div>
-        
-        <div>
-          <label style={lab}>Data da Compra</label>
-          <input 
-            type="date" 
-            value={form.data_compra} 
-            onChange={(e) => setForm((f) => ({ ...f, data_compra: e.target.value }))} 
-            style={inp} 
-          />
-        </div>
-        
-        <div>
-          <label style={lab}>Data Vencimento</label>
-          <input 
-            type="date" 
-            value={form.data_vencimento} 
-            onChange={(e) => setForm((f) => ({ ...f, data_vencimento: e.target.value }))} 
-            style={inp} 
-          />
-        </div>
-        
-        <div>
-          <label style={lab}>Valor</label>
-          <input 
-            type="number" 
-            min="0" 
-            step="0.01" 
-            value={form.valor} 
-            onChange={(e) => setForm((f) => ({ ...f, valor: e.target.value }))} 
-            style={inp} 
-          />
-        </div>
-        
-        <div style={{ gridColumn: "1 / -1" }}>
-          <label style={lab}>Descrição</label>
-          <input 
-            type="text" 
-            placeholder="Ex: Consultoria, Compra no Mercado..." 
-            value={form.descricao} 
-            onChange={(e) => setForm((f) => ({ ...f, descricao: e.target.value }))} 
-            style={inp} 
-            onKeyDown={(e) => e.key === "Enter" && salvar()} 
-          />
-        </div>
-      </div>
-
-      <div style={{ marginBottom: 12 }}>
-        <button 
-          onClick={() => setShowParcela(!showParcela)} 
-          style={{ fontSize: 12, color: C.navy, fontWeight: 500, background: "none", border: "none", cursor: "pointer" }}
-        >
-          {showParcela ? "▾" : "▸"} Parcelamento
-        </button>
-        
-        {showParcela && (
-          <div style={{ 
-            display: "grid", 
-            gridTemplateColumns: "repeat(auto-fit,minmax(120px,1fr))", 
-            gap: 8, 
-            marginTop: 8, 
-            padding: 10, 
-            background: C.slate, 
-            borderRadius: 10, 
-            border: "1px solid " + C.border 
-          }}>
-            <div>
-              <label style={lab}>Total de Parcelas</label>
-              <input 
-                type="number" 
-                min="1" 
-                value={form.parcelas} 
-                onChange={(e) => setForm((f) => ({ ...f, parcelas: e.target.value }))} 
-                style={inp} 
-              />
-            </div>
-            <div>
-              <label style={lab}>Parcela Atual</label>
-              <input 
-                type="number" 
-                min="1" 
-                value={form.parcela_atual} 
-                onChange={(e) => setForm((f) => ({ ...f, parcela_atual: e.target.value }))} 
-                style={inp} 
-              />
-            </div>
-            <div>
-              <label style={lab}>Cartão</label>
-              <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                <select 
-                  value={form.cartao} 
-                  onChange={(e) => setForm((f) => ({ ...f, cartao: e.target.value }))} 
-                  style={{ ...inp, flex: 1 }}
-                >
-                  <option value="">Selecione</option>
-                  {cartoes.map((c) => <option key={c} value={c}>{c}</option>)}
-                </select>
-                <button
-                  onClick={() => {
-                    let novoCartao = prompt("Digite o nome do novo cartão:", "");
-                    if (novoCartao && novoCartao.trim()) {
-                      novoCartao = novoCartao.trim();
-                      if (!cartoes.includes(novoCartao)) {
-                        setCartoes([...cartoes, novoCartao]);
-                        setForm((f) => ({ ...f, cartao: novoCartao }));
-                        toast(`✅ Cartão "${novoCartao}" adicionado!`);
-                      } else {
-                        toast(`⚠️ Cartão "${novoCartao}" já existe!`);
-                      }
-                    }
-                  }}
-                  style={{ ...btnP, padding: "6px 10px", borderRadius: 8 }}
-                  title="Adicionar novo cartão"
-                >
-                  <i className="ti ti-plus" style={{ fontSize: 12 }} />
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-
-      <button onClick={salvar} disabled={saving} style={{ ...btnP, padding: "9px 20px", borderRadius: 10 }}>
-        {saving ? <i className="ti ti-loader-2" style={{ animation: "spin 1s linear infinite" }} /> : <i className={"ti " + (editId ? "ti-check" : "ti-device-floppy")} />}
-        {editId ? "Atualizar" : "Salvar"}
-      </button>
-    </div>
-
-    {/* FILTRO POR MÊS */}
-    <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 10, flexWrap: "wrap" }}>
-      <select value={filtroMes} onChange={(e) => setFiltroMes(e.target.value)} style={{ ...inp, width: "auto" }}>
-        <option value="">Todos os meses ({safeLanc.length})</option>
-        {meses.map((m) => <option key={m} value={m}>{m.replace("-", "/")}</option>)}
-      </select>
-      <span style={{ marginLeft: "auto", fontSize: 11, color: C.green }}>
-        Entr: {fmt(lF.filter((l) => l.tipo === "receita").reduce((s, l) => s + Number(l.valor), 0))}
-      </span>
-      <span style={{ fontSize: 11, color: C.red }}>
-        Saíd: {fmt(lF.filter((l) => l.tipo === "despesa").reduce((s, l) => s + Number(l.valor), 0))}
-      </span>
-    </div>
-
-    {/* TABELA DE LANÇAMENTOS */}
-    <div style={crd}>
-      {lF.length === 0 ? (
-        <div style={{ textAlign: "center", padding: "2rem", color: C.grayD, fontSize: 13 }}>
-          Nenhum lançamento.
-        </div>
-      ) : (
-        <div style={{ overflowX: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
-            <thead>
-              <tr style={{ borderBottom: "2px solid " + C.border }}>
-                <th style={{ textAlign: "left", padding: "7px 8px", fontWeight: 600, color: C.grayD }}>Vencimento</th>
-                <th style={{ textAlign: "left", padding: "7px 8px", fontWeight: 600, color: C.grayD }}>Compra</th>
-                <th style={{ textAlign: "left", padding: "7px 8px", fontWeight: 600, color: C.grayD }}>Descrição</th>
-                <th style={{ textAlign: "left", padding: "7px 8px", fontWeight: 600, color: C.grayD }}>Categoria</th>
-                <th style={{ textAlign: "left", padding: "7px 8px", fontWeight: 600, color: C.grayD }}>Parcela</th>
-                <th style={{ textAlign: "right", padding: "7px 8px", fontWeight: 600, color: C.grayD }}>Valor</th>
-                <th style={{ textAlign: "center", padding: "7px 8px", fontWeight: 600, color: C.grayD }}>Ações</th>
-              </tr>
-            </thead>
-            <tbody>
-              {lF.map((l) => (
-                <tr key={l.id} className="row-hover" style={{ borderBottom: "1px solid " + C.border }}>
-                  <td style={{ padding: 8, color: C.grayD, whiteSpace: "nowrap" }}>
-                    {l.data_vencimento?.split("-").reverse().join("/")}
-                  </td>
-                  <td style={{ padding: 8, color: C.grayD, whiteSpace: "nowrap" }}>
-                    {l.data_compra?.split("-").reverse().join("/")}
-                  </td>
-                  <td style={{ padding: 8, fontWeight: 500 }}>{l.descricao}</td>
-                  <td style={{ padding: 8 }}>
-                    <span style={{ 
-                      fontSize: 10, 
-                      padding: "2px 8px", 
-                      borderRadius: 99, 
-                      background: l.tipo === "receita" ? "#ECFDF5" : "#FEF2F2", 
-                      color: l.tipo === "receita" ? C.greenD : C.red 
-                    }}>
-                      {l.cat}
-                    </span>
-                  </td>
-                  <td style={{ padding: 8, fontSize: 10, color: C.grayD, whiteSpace: "nowrap" }}>
-                    {l.parcelas ? `${l.parcela_atual || 1}/${l.parcelas}` : "—"}
-                    {l.cartao && <span style={{ marginLeft: 4, fontSize: 9 }}>({l.cartao})</span>}
-                  </td>
-                  <td style={{ padding: 8, fontWeight: 700, color: l.tipo === "receita" ? C.green : C.red, textAlign: "right", whiteSpace: "nowrap" }}>
-                    {l.tipo === "despesa" ? "-" : ""}{fmt(l.valor)}
-                  </td>
-                  <td style={{ padding: 8, whiteSpace: "nowrap", textAlign: "center" }}>
-                    <button onClick={() => startEdit(l)} style={btnI} title="Editar">
-                      <i className="ti ti-edit" style={{ fontSize: 13, color: C.navy }} />
-                    </button>
-                    <button onClick={() => duplicar(l)} style={btnI} title="Duplicar">
-                      <i className="ti ti-copy" style={{ fontSize: 13, color: C.purple }} />
-                    </button>
-                    <button onClick={() => del(l.id)} style={btnI} title="Excluir">
-                      <i className="ti ti-trash" style={{ fontSize: 13, color: C.red }} />
-                    </button>
-                  </td>
-                </tr>
+        {aba === "dashboard" && (
+          <div style={{ animation: "fadeUp .4s ease" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(140px,1fr))", gap: 10, marginBottom: 14 }}>
+              {[{ l: "Receita", v: fmt(tR), c: C.green }, { l: "Despesas", v: fmt(tD), c: C.red }, { l: "Saldo", v: fmt(saldo), c: saldo >= 0 ? C.navy : C.red }, { l: "Investido", v: fmt(inv), c: C.purple }, { l: "Financiamento", v: fmt(fin), c: C.amber }].map((k) => (
+                <div key={k.l} style={{ ...crd, borderTop: "3px solid " + k.c, padding: "1rem" }}>
+                  <div style={{ fontSize: 10, fontWeight: 600, color: C.grayD, textTransform: "uppercase", marginBottom: 6 }}>{k.l}</div>
+                  <div style={{ fontSize: 18, fontWeight: 700, color: k.c }}>{k.v}</div>
+                </div>
               ))}
-            </tbody>
-            <tfoot>
-              <tr style={{ borderTop: "2px solid " + C.border }}>
-                <td colSpan={5} style={{ padding: 8, fontWeight: 600 }}>Saldo do período</td>
-                <td style={{ padding: 8, fontWeight: 700, textAlign: "right", color: sP >= 0 ? C.green : C.red }}>
-                  {fmt(sP)}
-                </td>
-                <td></td>
-              </tr>
-            </tfoot>
-          </table>
-        </div>
-      )}
-    </div>
-  </div>
-)}
-
-{/* CARTÃO - PARCELAS POR MÊS */}
-{aba === "cartao" && (
-  <div style={{ animation: "fadeUp .4s ease" }}>
-    <div style={{ ...crd, marginBottom: 14 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-        <div>
-          <div style={{ fontWeight: 600, fontSize: 14, color: C.navy }}>Parcelas por Mês</div>
-          <div style={{ fontSize: 12, color: C.grayD }}>
-            Total de parcelas: {safeLanc.filter(l => l?.parcelas && l.parcelas > 0).length}
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(260px,1fr))", gap: 10, marginBottom: 14 }}>
+              <div style={crd}>
+                <div style={{ fontWeight: 600, fontSize: 13, color: C.navy, marginBottom: 12 }}>Receita</div>
+                {[["Fixa", rF, C.navy], ["Variável", rV, C.green]].map(([l, v, c]) => (
+                  <div key={l} style={{ marginBottom: 10 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 4 }}>
+                      <span style={{ color: C.grayD }}>{l}</span>
+                      <span style={{ fontWeight: 600, color: c }}>{tR > 0 ? ((v / tR) * 100).toFixed(1) : 0}%</span>
+                    </div>
+                    <Bar pct={tR > 0 ? (v / tR) * 100 : 0} color={c} />
+                  </div>
+                ))}
+              </div>
+              <div style={crd}>
+                <div style={{ fontWeight: 600, fontSize: 13, color: C.navy, marginBottom: 12 }}>Indicadores</div>
+                {[{ l: "Poupança", v: fmtPct(txP), ok: txP >= .2 }, { l: "Investimento", v: fmtPct(txI), ok: txI >= .1 }, { l: "Fixas", v: fmtPct(cFx), ok: cFx <= .5 }, { l: "CLT", v: fmtPct(dC), ok: dC <= .7 }].map((k) => (
+                  <div key={k.l} style={{ display: "flex", alignItems: "center", padding: "5px 0", borderBottom: "1px solid " + C.border }}>
+                    <span style={{ flex: 1, fontSize: 12, color: C.grayD }}>{k.l}</span>
+                    <span style={{ fontSize: 12, fontWeight: 600, color: k.ok ? C.green : C.amber }}>{k.v}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div style={crd}>
+              <div style={{ fontWeight: 600, fontSize: 13, color: C.navy, marginBottom: 12 }}>Metas</div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))", gap: 10 }}>
+                {safeMetas.map((m) => {
+                  const p = Math.min(100, (m.atual / m.valor) * 100);
+                  return (
+                    <div key={m.id} style={{ background: C.slate, borderRadius: 10, padding: 10, border: "1px solid " + C.border }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
+                        <span style={{ fontSize: 11, fontWeight: 600, color: C.navy }}>{m.nome}</span>
+                        <span style={{ fontSize: 11, fontWeight: 700, color: p >= 100 ? C.green : C.navy }}>{Math.round(p)}%</span>
+                      </div>
+                      <Bar pct={p} color={p >= 100 ? C.green : C.navy} />
+                      <div style={{ fontSize: 10, color: C.grayD, marginTop: 4 }}>{fmt(m.atual)} / {fmt(m.valor)}</div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
           </div>
-        </div>
-        <button 
-          onClick={() => {
-            let novoCartao = prompt("Digite o nome do novo cartão:", "");
-            if (novoCartao && novoCartao.trim()) {
-              novoCartao = novoCartao.trim();
-              if (!cartoes.includes(novoCartao)) {
-                setCartoes([...cartoes, novoCartao]);
-                toast(`✅ Cartão "${novoCartao}" adicionado!`);
-              } else {
-                toast(`⚠️ Cartão "${novoCartao}" já existe!`);
-              }
-            }
-          }}
-          style={{ ...btnS, gap: 6 }}
-        >
-          <i className="ti ti-plus" style={{ fontSize: 14 }} />
-          Novo Cartão
-        </button>
-      </div>
-      
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-        {cartoes.map((cartao) => (
-          <span key={cartao} style={{ 
-            padding: "4px 12px", 
-            background: C.slate, 
-            borderRadius: 20, 
-            fontSize: 12, 
-            border: "1px solid " + C.border 
-          }}>
-            {cartao}
-          </span>
-        ))}
-      </div>
-    </div>
+        )}
 
-    {Object.keys(parcelasPorMes).length === 0 ? (
-      <div style={{ ...crd, textAlign: "center", padding: "3rem", color: C.grayD, fontSize: 13 }}>
-        <i className="ti ti-credit-card-off" style={{ fontSize: 48, display: "block", marginBottom: 16, opacity: 0.5 }} />
-        Nenhuma parcela encontrada.
-        <div style={{ fontSize: 12, marginTop: 8, color: C.gray }}>
-          Adicione compras parceladas nos lançamentos com a opção "Parcelamento"
-        </div>
-      </div>
-    ) : (
-      Object.keys(parcelasPorMes).sort().reverse().map((mes) => {
-        const parcelasDoMes = parcelasPorMes[mes];
-        const totalMes = parcelasDoMes.reduce((s, l) => s + Number(l.valor), 0);
-        const nomeMes = new Date(mes + "-01").toLocaleDateString("pt-BR", { month: "long", year: "numeric" });
-        
-        return (
-          <div key={mes} style={{ ...crd, marginBottom: 16 }}>
-            <div style={{ 
-              display: "flex", 
-              justifyContent: "space-between", 
-              alignItems: "center", 
-              marginBottom: 16, 
-              paddingBottom: 12, 
-              borderBottom: "2px solid " + C.border 
-            }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                <div style={{ 
-                  width: 40, 
-                  height: 40, 
-                  borderRadius: 12, 
-                  background: C.navy + "15", 
-                  display: "flex", 
-                  alignItems: "center", 
-                  justifyContent: "center" 
-                }}>
-                  <i className="ti ti-calendar-month" style={{ fontSize: 20, color: C.navy }} />
+        {/* LANÇAMENTOS */}
+        {aba === "lancamentos" && (
+          <div style={{ animation: "fadeUp .4s ease" }}>
+            <div style={{ ...crd, marginBottom: 14 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 12 }}>
+                <span style={{ fontWeight: 600, fontSize: 13, color: C.navy }}>{editId ? "Editando" : "Novo lançamento"}</span>
+                {editId && <button onClick={cancelEdit} style={{ fontSize: 12, color: C.red, background: "none", border: "none", cursor: "pointer" }}>Cancelar</button>}
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(130px,1fr))", gap: 8, marginBottom: 10 }}>
+                <div>
+                  <label style={lab}>Tipo</label>
+                  <select value={form.tipo} onChange={(e) => setForm((f) => ({ ...f, tipo: e.target.value, cat: e.target.value === "receita" ? catsRList[0] : catsDList[0] }))} style={inp}>
+                    <option value="receita">Receita</option>
+                    <option value="despesa">Despesa</option>
+                  </select>
                 </div>
                 <div>
-                  <div style={{ fontWeight: 700, fontSize: 16, color: C.navy, textTransform: "capitalize" }}>
-                    {nomeMes}
-                  </div>
-                  <div style={{ fontSize: 11, color: C.grayD }}>
-                    {parcelasDoMes.length} parcela(s) • {Object.keys(parcelasDoMes.reduce((acc, l) => ({ ...acc, [l.cartao]: true }), {})).length} cartão(ões)
-                  </div>
+                  <label style={lab}>Categoria</label>
+                  <select value={form.cat} onChange={(e) => setForm((f) => ({ ...f, cat: e.target.value }))} style={inp}>
+                    {(form.tipo === "receita" ? catsRList : catsDList).map((c) => <option key={c}>{c}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label style={lab}>Data da Compra</label>
+                  <input type="date" value={form.data_compra} onChange={(e) => setForm((f) => ({ ...f, data_compra: e.target.value }))} style={inp} />
+                </div>
+                <div>
+                  <label style={lab}>Data Vencimento</label>
+                  <input type="date" value={form.data_vencimento} onChange={(e) => setForm((f) => ({ ...f, data_vencimento: e.target.value }))} style={inp} />
+                </div>
+                <div>
+                  <label style={lab}>Valor</label>
+                  <input type="number" min="0" step="0.01" value={form.valor} onChange={(e) => setForm((f) => ({ ...f, valor: e.target.value }))} style={inp} />
+                </div>
+                <div style={{ gridColumn: "1 / -1" }}>
+                  <label style={lab}>Descrição</label>
+                  <input type="text" placeholder="Ex: Consultoria" value={form.descricao} onChange={(e) => setForm((f) => ({ ...f, descricao: e.target.value }))} style={inp} onKeyDown={(e) => e.key === "Enter" && salvar()} />
                 </div>
               </div>
-              <div style={{ 
-                fontSize: 22, 
-                fontWeight: 700, 
-                color: C.red, 
-                background: C.red + "10", 
-                padding: "6px 16px", 
-                borderRadius: 30 
-              }}>
-                {fmt(totalMes)}
+
+              <div style={{ marginBottom: 12 }}>
+                <button onClick={() => setShowParcela(!showParcela)} style={{ fontSize: 12, color: C.navy, fontWeight: 500, background: "none", border: "none", cursor: "pointer" }}>
+                  {showParcela ? "▾" : "▸"} Parcelamento
+                </button>
+                {showParcela && (
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(120px,1fr))", gap: 8, marginTop: 8, padding: 10, background: C.slate, borderRadius: 10, border: "1px solid " + C.border }}>
+                    <div>
+                      <label style={lab}>Parcelas</label>
+                      <input type="number" min="1" value={form.parcelas} onChange={(e) => setForm((f) => ({ ...f, parcelas: e.target.value }))} style={inp} />
+                    </div>
+                    <div>
+                      <label style={lab}>Atual</label>
+                      <input type="number" min="1" value={form.parcela_atual} onChange={(e) => setForm((f) => ({ ...f, parcela_atual: e.target.value }))} style={inp} />
+                    </div>
+                    <div>
+                      <label style={lab}>Cartão</label>
+                      <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                        <select value={form.cartao} onChange={(e) => setForm((f) => ({ ...f, cartao: e.target.value }))} style={{ ...inp, flex: 1 }}>
+                          <option value="">Selecione</option>
+                          {cartoes.map((c) => <option key={c} value={c}>{c}</option>)}
+                        </select>
+                        <button
+                          onClick={() => {
+                            let novoCartao = prompt("Digite o nome do novo cartão:", "");
+                            if (novoCartao && novoCartao.trim()) {
+                              novoCartao = novoCartao.trim();
+                              if (!cartoes.includes(novoCartao)) {
+                                setCartoes([...cartoes, novoCartao]);
+                                setForm((f) => ({ ...f, cartao: novoCartao }));
+                                toast(`✅ Cartão "${novoCartao}" adicionado!`);
+                              } else {
+                                toast(`⚠️ Cartão "${novoCartao}" já existe!`);
+                              }
+                            }
+                          }}
+                          style={{ ...btnP, padding: "6px 10px", borderRadius: 8 }}
+                          title="Adicionar novo cartão">
+                          <i className="ti ti-plus" style={{ fontSize: 12 }} />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
+
+              <button onClick={salvar} disabled={saving} style={{ ...btnP, padding: "9px 20px", borderRadius: 10 }}>
+                {saving ? <i className="ti ti-loader-2" style={{ animation: "spin 1s linear infinite" }} /> : <i className={"ti " + (editId ? "ti-check" : "ti-device-floppy")} />}
+                {editId ? "Atualizar" : "Salvar"}
+              </button>
             </div>
 
-            <div style={{ overflowX: "auto" }}>
-              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
-                <thead>
-                  <tr style={{ borderBottom: "1px solid " + C.border, background: C.slate }}>
-                    <th style={{ textAlign: "left", padding: "10px 8px", fontWeight: 600, color: C.grayD, width: "100px" }}>Data Compra</th>
-                    <th style={{ textAlign: "left", padding: "10px 8px", fontWeight: 600, color: C.grayD }}>Descrição</th>
-                    <th style={{ textAlign: "left", padding: "10px 8px", fontWeight: 600, color: C.grayD, width: "120px" }}>Categoria</th>
-                    <th style={{ textAlign: "center", padding: "10px 8px", fontWeight: 600, color: C.grayD, width: "100px" }}>Parcela</th>
-                    <th style={{ textAlign: "left", padding: "10px 8px", fontWeight: 600, color: C.grayD, width: "100px" }}>Cartão</th>
-                    <th style={{ textAlign: "right", padding: "10px 8px", fontWeight: 600, color: C.grayD, width: "100px" }}>Valor</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {parcelasDoMes.map((l) => {
-                    const progresso = (l.parcela_atual / l.parcelas) * 100;
-                    return (
-                      <tr key={l.id} style={{ borderBottom: "1px solid " + C.border }} className="row-hover">
-                        <td style={{ padding: "10px 8px", color: C.grayD, whiteSpace: "nowrap" }}>
-                          {l.data_compra?.split("-").reverse().join("/")}
-                        </td>
-                        <td style={{ padding: "10px 8px", fontWeight: 500 }}>{l.descricao}</td>
-                        <td style={{ padding: "10px 8px" }}>
-                          <span style={{ 
-                            fontSize: 10, 
-                            padding: "4px 10px", 
-                            borderRadius: 20, 
-                            background: "#FEF2F2", 
-                            color: C.red, 
-                            whiteSpace: "nowrap" 
-                          }}>
-                            {l.cat}
-                          </span>
-                        </td>
-                        <td style={{ padding: "10px 8px", textAlign: "center" }}>
-                          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
-                            <span style={{ fontWeight: 600, fontSize: 13, color: C.navy }}>
-                              {l.parcela_atual}/{l.parcelas}
-                            </span>
-                            <div style={{ width: "60px" }}>
-                              <Bar pct={progresso} color={progresso >= 100 ? C.green : C.purple} />
-                            </div>
-                          </div>
-                        </td>
-                        <td style={{ padding: "10px 8px" }}>
-                          <span style={{ 
-                            display: "inline-flex", 
-                            alignItems: "center", 
-                            gap: 4, 
-                            padding: "2px 8px", 
-                            background: C.navy + "10", 
-                            borderRadius: 15, 
-                            fontSize: 11, 
-                            color: C.navy 
-                          }}>
-                            <i className="ti ti-credit-card" style={{ fontSize: 11 }} />
-                            {l.cartao || "Sem cartão"}
-                          </span>
-                        </td>
-                        <td style={{ padding: "10px 8px", textAlign: "right", fontWeight: 700, color: C.red, whiteSpace: "nowrap" }}>
-                          {fmt(l.valor)}
-                        </td>
+            <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 10, flexWrap: "wrap" }}>
+              <select value={filtroMes} onChange={(e) => setFiltroMes(e.target.value)} style={{ ...inp, width: "auto" }}>
+                <option value="">Todos ({safeLanc.length})</option>
+                {meses.map((m) => <option key={m} value={m}>{m.replace("-", "/")}</option>)}
+              </select>
+              <span style={{ marginLeft: "auto", fontSize: 11, color: C.green }}>Entr: {fmt(lF.filter((l) => l.tipo === "receita").reduce((s, l) => s + Number(l.valor), 0))}</span>
+              <span style={{ fontSize: 11, color: C.red }}>Saíd: {fmt(lF.filter((l) => l.tipo === "despesa").reduce((s, l) => s + Number(l.valor), 0))}</span>
+            </div>
+
+            <div style={crd}>
+              {lF.length === 0 ? (
+                <div style={{ textAlign: "center", padding: "2rem", color: C.grayD, fontSize: 13 }}>Nenhum lançamento.</div>
+              ) : (
+                <div style={{ overflowX: "auto" }}>
+                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+                    <thead>
+                      <tr style={{ borderBottom: "2px solid " + C.border }}>
+                        <th style={{ textAlign: "left", padding: "7px 8px", fontWeight: 600, color: C.grayD }}>Vencimento</th>
+                        <th style={{ textAlign: "left", padding: "7px 8px", fontWeight: 600, color: C.grayD }}>Compra</th>
+                        <th style={{ textAlign: "left", padding: "7px 8px", fontWeight: 600, color: C.grayD }}>Descrição</th>
+                        <th style={{ textAlign: "left", padding: "7px 8px", fontWeight: 600, color: C.grayD }}>Categoria</th>
+                        <th style={{ textAlign: "left", padding: "7px 8px", fontWeight: 600, color: C.grayD }}>Parcela</th>
+                        <th style={{ textAlign: "right", padding: "7px 8px", fontWeight: 600, color: C.grayD }}>Valor</th>
+                        <th style={{ textAlign: "center", padding: "7px 8px", fontWeight: 600, color: C.grayD }}>Ações</th>
                       </tr>
-                    );
-                  })}
-                </tbody>
-                <tfoot>
-                  <tr style={{ borderTop: "2px solid " + C.border, background: C.slate }}>
-                    <td colSpan={5} style={{ padding: "10px 8px", fontWeight: 600 }}>Total do mês</td>
-                    <td style={{ padding: "10px 8px", textAlign: "right", fontWeight: 700, fontSize: 14, color: C.red }}>
-                      {fmt(totalMes)}
-                    </td>
-                  </tr>
-                </tfoot>
-              </table>
+                    </thead>
+                    <tbody>
+                      {lF.map((l) => (
+                        <tr key={l.id} className="row-hover" style={{ borderBottom: "1px solid " + C.border }}>
+                          <td style={{ padding: 8, color: C.grayD, whiteSpace: "nowrap" }}>{l.data_vencimento?.split("-").reverse().join("/")}</td>
+                          <td style={{ padding: 8, color: C.grayD, whiteSpace: "nowrap" }}>{l.data_compra?.split("-").reverse().join("/")}</td>
+                          <td style={{ padding: 8, fontWeight: 500 }}>{l.descricao}</td>
+                          <td style={{ padding: 8 }}>
+                            <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 99, background: l.tipo === "receita" ? "#ECFDF5" : "#FEF2F2", color: l.tipo === "receita" ? C.greenD : C.red }}>
+                              {l.cat}
+                            </span>
+                          </td>
+                          <td style={{ padding: 8, fontSize: 10, color: C.grayD, whiteSpace: "nowrap" }}>
+                            {l.parcelas ? `${l.parcela_atual || 1}/${l.parcelas}` : "—"}
+                            {l.cartao && <span style={{ marginLeft: 4, fontSize: 9 }}>({l.cartao})</span>}
+                          </td>
+                          <td style={{ padding: 8, fontWeight: 700, color: l.tipo === "receita" ? C.green : C.red, textAlign: "right", whiteSpace: "nowrap" }}>
+                            {l.tipo === "despesa" ? "-" : ""}{fmt(l.valor)}
+                          </td>
+                          <td style={{ padding: 8, whiteSpace: "nowrap", textAlign: "center" }}>
+                            <button onClick={() => startEdit(l)} style={btnI}><i className="ti ti-edit" style={{ fontSize: 13, color: C.navy }} /></button>
+                            <button onClick={() => duplicar(l)} style={btnI}><i className="ti ti-copy" style={{ fontSize: 13, color: C.purple }} /></button>
+                            <button onClick={() => del(l.id)} style={btnI}><i className="ti ti-trash" style={{ fontSize: 13, color: C.red }} /></button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr style={{ borderTop: "2px solid " + C.border }}>
+                        <td colSpan={6} style={{ padding: 8, fontWeight: 600 }}>Saldo do período</td>
+                        <td style={{ padding: 8, fontWeight: 700, textAlign: "right", color: sP >= 0 ? C.green : C.red }}>{fmt(sP)}</td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              )}
             </div>
+          </div>
+        )}
 
-            <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid " + C.border }}>
-              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, marginBottom: 6 }}>
-                <span style={{ color: C.grayD }}>Progresso de pagamento do mês</span>
-                <span style={{ fontWeight: 600, color: C.navy }}>
-                  {Math.round((parcelasDoMes.filter(l => l.parcela_atual === l.parcelas).length / parcelasDoMes.length) * 100)}% quitado
-                </span>
+        {/* CARTÃO - PARCELAS POR MÊS */}
+        {aba === "cartao" && (
+          <div style={{ animation: "fadeUp .4s ease" }}>
+            <div style={{ ...crd, marginBottom: 14 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+                <div>
+                  <div style={{ fontWeight: 600, fontSize: 14, color: C.navy }}>Parcelas por Mês</div>
+                  <div style={{ fontSize: 12, color: C.grayD }}>
+                    Total de parcelas: {safeLanc.filter(l => l?.parcelas && l.parcelas > 0).length}
+                  </div>
+                </div>
+                <button onClick={() => {
+                  let novoCartao = prompt("Digite o nome do novo cartão:", "");
+                  if (novoCartao && novoCartao.trim()) {
+                    novoCartao = novoCartao.trim();
+                    if (!cartoes.includes(novoCartao)) {
+                      setCartoes([...cartoes, novoCartao]);
+                      toast(`✅ Cartão "${novoCartao}" adicionado!`);
+                    } else {
+                      toast(`⚠️ Cartão "${novoCartao}" já existe!`);
+                    }
+                  }
+                }} style={{ ...btnS, gap: 6 }}>
+                  <i className="ti ti-plus" style={{ fontSize: 14 }} />
+                  Novo Cartão
+                </button>
               </div>
-              <Bar pct={(parcelasDoMes.filter(l => l.parcela_atual === l.parcelas).length / parcelasDoMes.length) * 100} color={C.green} />
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                {cartoes.map((cartao) => (
+                  <span key={cartao} style={{ padding: "4px 12px", background: C.slate, borderRadius: 20, fontSize: 12, border: "1px solid " + C.border }}>
+                    {cartao}
+                  </span>
+                ))}
+              </div>
             </div>
-          </div>
-        );
-      })
-    )}
-  </div>
-)}
 
-{/* METAS */}
-{aba === "metas" && (
-  <div style={{ animation: "fadeUp .4s ease", display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(250px,1fr))", gap: 12 }}>
-    {safeMetas.map((m) => {
-      const p = Math.min(100, (m.atual / m.valor) * 100);
-      return (
-        <div key={m.id} style={{ ...crd, borderTop: "3px solid " + (p >= 100 ? C.green : C.navy) }}>
-          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 10 }}>
-            <div>
-              <div style={{ fontWeight: 600, fontSize: 14, color: C.navy }}>{m.nome}</div>
-              <div style={{ fontSize: 11, color: C.grayD }}>{m.prazo}</div>
-            </div>
-            <div style={{ fontSize: 18, fontWeight: 700, color: p >= 100 ? C.green : C.navy }}>
-              {Math.round(p)}%
-            </div>
+            {Object.keys(parcelasPorMes).length === 0 ? (
+              <div style={{ ...crd, textAlign: "center", padding: "3rem", color: C.grayD, fontSize: 13 }}>
+                <i className="ti ti-credit-card-off" style={{ fontSize: 48, display: "block", marginBottom: 16, opacity: 0.5 }} />
+                Nenhuma parcela encontrada.
+              </div>
+            ) : (
+              Object.keys(parcelasPorMes).sort().reverse().map((mes) => {
+                const parcelasDoMes = parcelasPorMes[mes];
+                const totalMes = parcelasDoMes.reduce((s, l) => s + Number(l.valor), 0);
+                const nomeMes = new Date(mes + "-01").toLocaleDateString("pt-BR", { month: "long", year: "numeric" });
+                return (
+                  <div key={mes} style={{ ...crd, marginBottom: 16 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, paddingBottom: 12, borderBottom: "2px solid " + C.border }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                        <div style={{ width: 40, height: 40, borderRadius: 12, background: C.navy + "15", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                          <i className="ti ti-calendar-month" style={{ fontSize: 20, color: C.navy }} />
+                        </div>
+                        <div>
+                          <div style={{ fontWeight: 700, fontSize: 16, color: C.navy, textTransform: "capitalize" }}>{nomeMes}</div>
+                          <div style={{ fontSize: 11, color: C.grayD }}>
+                            {parcelasDoMes.length} parcela(s) • {Object.keys(parcelasDoMes.reduce((acc, l) => ({ ...acc, [l.cartao]: true }), {})).length} cartão(ões)
+                          </div>
+                        </div>
+                      </div>
+                      <div style={{ fontSize: 22, fontWeight: 700, color: C.red, background: C.red + "10", padding: "6px 16px", borderRadius: 30 }}>
+                        {fmt(totalMes)}
+                      </div>
+                    </div>
+                    <div style={{ overflowX: "auto" }}>
+                      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                        <thead>
+                          <tr style={{ borderBottom: "1px solid " + C.border, background: C.slate }}>
+                            <th style={{ textAlign: "left", padding: "10px 8px", fontWeight: 600, color: C.grayD }}>Data Compra</th>
+                            <th style={{ textAlign: "left", padding: "10px 8px", fontWeight: 600, color: C.grayD }}>Descrição</th>
+                            <th style={{ textAlign: "left", padding: "10px 8px", fontWeight: 600, color: C.grayD }}>Categoria</th>
+                            <th style={{ textAlign: "center", padding: "10px 8px", fontWeight: 600, color: C.grayD }}>Parcela</th>
+                            <th style={{ textAlign: "left", padding: "10px 8px", fontWeight: 600, color: C.grayD }}>Cartão</th>
+                            <th style={{ textAlign: "right", padding: "10px 8px", fontWeight: 600, color: C.grayD }}>Valor</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {parcelasDoMes.map((l) => {
+                            const progresso = (l.parcela_atual / l.parcelas) * 100;
+                            return (
+                              <tr key={l.id} style={{ borderBottom: "1px solid " + C.border }} className="row-hover">
+                                <td style={{ padding: "10px 8px", color: C.grayD, whiteSpace: "nowrap" }}>{l.data_compra?.split("-").reverse().join("/")}</td>
+                                <td style={{ padding: "10px 8px", fontWeight: 500 }}>{l.descricao}</td>
+                                <td style={{ padding: "10px 8px" }}>
+                                  <span style={{ fontSize: 10, padding: "4px 10px", borderRadius: 20, background: "#FEF2F2", color: C.red, whiteSpace: "nowrap" }}>
+                                    {l.cat}
+                                  </span>
+                                </td>
+                                <td style={{ padding: "10px 8px", textAlign: "center" }}>
+                                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
+                                    <span style={{ fontWeight: 600, fontSize: 13, color: C.navy }}>{l.parcela_atual}/{l.parcelas}</span>
+                                    <div style={{ width: "60px" }}><Bar pct={progresso} color={progresso >= 100 ? C.green : C.purple} /></div>
+                                  </div>
+                                </td>
+                                <td style={{ padding: "10px 8px" }}>
+                                  <span style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "2px 8px", background: C.navy + "10", borderRadius: 15, fontSize: 11, color: C.navy }}>
+                                    <i className="ti ti-credit-card" style={{ fontSize: 11 }} />
+                                    {l.cartao || "Sem cartão"}
+                                  </span>
+                                </td>
+                                <td style={{ padding: "10px 8px", textAlign: "right", fontWeight: 700, color: C.red, whiteSpace: "nowrap" }}>{fmt(l.valor)}</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                        <tfoot>
+                          <tr style={{ borderTop: "2px solid " + C.border, background: C.slate }}>
+                            <td colSpan={5} style={{ padding: "10px 8px", fontWeight: 600 }}>Total do mês</td>
+                            <td style={{ padding: "10px 8px", textAlign: "right", fontWeight: 700, fontSize: 14, color: C.red }}>{fmt(totalMes)}</td>
+                          </tr>
+                        </tfoot>
+                      </table>
+                    </div>
+                  </div>
+                );
+              })
+            )}
           </div>
-          <Bar pct={p} color={p >= 100 ? C.green : C.navy} />
-          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: C.grayD, margin: "8px 0 12px" }}>
-            <span>{fmt(m.atual)}</span>
-            <span>Meta: {fmt(m.valor)}</span>
-          </div>
-          <div style={{ display: "flex", gap: 6 }}>
-            <input type="number" min="0" id={"mi-" + m.id} placeholder="Valor" style={{ ...inp, flex: 1 }} />
-            <button onClick={() => {
-              const el = document.getElementById("mi-" + m.id);
-              const v = parseFloat(el.value);
-              if (!isNaN(v) && v > 0) {
-                updMeta(m.id, v);
-                el.value = "";
-              }
-            }} style={btnP}>Aportar</button>
-          </div>
-        </div>
-      );
-    })}
-  </div>
-)}
+        )}
 
-{/* IA CONSULTORA */}
-{aba === "ia" && (
-  <div style={{ animation: "fadeUp .4s ease" }}>
-    <div style={{ ...crd, marginBottom: 12 }}>
-      <div style={{ fontWeight: 600, fontSize: 14, color: C.navy }}>Consultora IA</div>
-      <div style={{ fontSize: 11, color: C.grayD }}>{safeLanc.length} lançamentos</div>
-    </div>
-    <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12 }}>
-      {["Saúde financeira", "Acelerar reserva", "Investir mais?", "Dependência CLT", "Impacto parcelas", "Financiamento?"].map((s) => (
-        <button key={s} onClick={() => setAiQ(s)} style={{ 
-          fontSize: 11, 
-          padding: "6px 12px", 
-          borderRadius: 18, 
-          border: "1px solid " + C.border, 
-          cursor: "pointer", 
-          background: C.white, 
-          color: C.navy, 
-          fontWeight: 500 
-        }}>
-          {s}
-        </button>
-      ))}
-    </div>
-    <div style={{ ...crd, marginBottom: 12, display: "flex", gap: 8 }}>
-      <input 
-        type="text" 
-        placeholder="Pergunte..." 
-        value={aiQ} 
-        onChange={(e) => setAiQ(e.target.value)} 
-        onKeyDown={(e) => e.key === "Enter" && !aiLoad && askAI()} 
-        style={{ ...inp, flex: 1, borderRadius: 10, padding: "10px 14px" }} 
-      />
-      <button 
-        onClick={askAI} 
-        disabled={aiLoad || !aiQ.trim()} 
-        style={{ ...btnP, borderRadius: 10, padding: "10px 18px" }}
-      >
-        {aiLoad ? <i className="ti ti-loader-2" style={{ animation: "spin 1s linear infinite" }} /> : <i className="ti ti-send" />}
-        {aiLoad ? "..." : "Enviar"}
-      </button>
-    </div>
-    {aiResp && !aiLoad && (
-      <div style={{ ...crd, borderLeft: "4px solid " + C.navy }}>
-        <div style={{ fontSize: 13, fontWeight: 600, color: C.navy, marginBottom: 8 }}>Análise</div>
-        <div style={{ fontSize: 14, lineHeight: 1.8, whiteSpace: "pre-wrap", color: "#334155" }}>{aiResp}</div>
+        {/* METAS */}
+        {aba === "metas" && (
+          <div style={{ animation: "fadeUp .4s ease", display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(250px,1fr))", gap: 12 }}>
+            {safeMetas.map((m) => {
+              const p = Math.min(100, (m.atual / m.valor) * 100);
+              return (
+                <div key={m.id} style={{ ...crd, borderTop: "3px solid " + (p >= 100 ? C.green : C.navy) }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 10 }}>
+                    <div>
+                      <div style={{ fontWeight: 600, fontSize: 14, color: C.navy }}>{m.nome}</div>
+                      <div style={{ fontSize: 11, color: C.grayD }}>{m.prazo}</div>
+                    </div>
+                    <div style={{ fontSize: 18, fontWeight: 700, color: p >= 100 ? C.green : C.navy }}>{Math.round(p)}%</div>
+                  </div>
+                  <Bar pct={p} color={p >= 100 ? C.green : C.navy} />
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: C.grayD, margin: "8px 0 12px" }}>
+                    <span>{fmt(m.atual)}</span>
+                    <span>Meta: {fmt(m.valor)}</span>
+                  </div>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <input type="number" min="0" id={"mi-" + m.id} placeholder="Valor" style={{ ...inp, flex: 1 }} />
+                    <button onClick={() => {
+                      const el = document.getElementById("mi-" + m.id);
+                      const v = parseFloat(el.value);
+                      if (!isNaN(v) && v > 0) {
+                        updMeta(m.id, v);
+                        el.value = "";
+                      }
+                    }} style={btnP}>Aportar</button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* CATEGORIAS */}
+        {aba === "categorias" && (
+          <GerenciarCategorias 
+            token={token} 
+            onCategoriasChange={() => {
+              sb("/categorias?order=ordem.asc", { token })
+                .then(data => {
+                  if (Array.isArray(data)) setCategorias(data);
+                });
+            }}
+          />
+        )}
+
+        {/* IA */}
+        {aba === "ia" && (
+          <div style={{ animation: "fadeUp .4s ease" }}>
+            <div style={{ ...crd, marginBottom: 12 }}>
+              <div style={{ fontWeight: 600, fontSize: 14, color: C.navy }}>Consultora IA</div>
+              <div style={{ fontSize: 11, color: C.grayD }}>{safeLanc.length} lançamentos</div>
+            </div>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12 }}>
+              {["Saúde financeira", "Acelerar reserva", "Investir mais?", "Dependência CLT", "Impacto parcelas", "Financiamento?"].map((s) => (
+                <button key={s} onClick={() => setAiQ(s)} style={{ fontSize: 11, padding: "6px 12px", borderRadius: 18, border: "1px solid " + C.border, cursor: "pointer", background: C.white, color: C.navy, fontWeight: 500 }}>
+                  {s}
+                </button>
+              ))}
+            </div>
+            <div style={{ ...crd, marginBottom: 12, display: "flex", gap: 8 }}>
+              <input type="text" placeholder="Pergunte..." value={aiQ} onChange={(e) => setAiQ(e.target.value)} onKeyDown={(e) => e.key === "Enter" && !aiLoad && askAI()} style={{ ...inp, flex: 1, borderRadius: 10, padding: "10px 14px" }} />
+              <button onClick={askAI} disabled={aiLoad || !aiQ.trim()} style={{ ...btnP, borderRadius: 10, padding: "10px 18px" }}>
+                {aiLoad ? <i className="ti ti-loader-2" style={{ animation: "spin 1s linear infinite" }} /> : <i className="ti ti-send" />}
+                {aiLoad ? "..." : "Enviar"}
+              </button>
+            </div>
+            {aiResp && !aiLoad && (
+              <div style={{ ...crd, borderLeft: "4px solid " + C.navy }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: C.navy, marginBottom: 8 }}>Análise</div>
+                <div style={{ fontSize: 14, lineHeight: 1.8, whiteSpace: "pre-wrap", color: "#334155" }}>{aiResp}</div>
+              </div>
+            )}
+          </div>
+        )}
       </div>
-    )}
-  </div>
-)}
+    </div>
+  );
+}
 
-
-
-/* ════ LANDING PAGE ════ */
+/* ════ LANDING ════ */
 function Landing({ onEnter }) {
   return (
     <div style={{ color: "#1E293B" }}>
@@ -1191,28 +1238,19 @@ function Landing({ onEnter }) {
             </div>
             <span style={{ fontWeight: 600, fontSize: 16, color: C.navy }}>FinancePro</span>
           </div>
-          <button onClick={onEnter} className="btn-green" style={{ background: C.green, color: "#fff", border: "none", borderRadius: 8, padding: "8px 20px", fontSize: 13, fontWeight: 500, cursor: "pointer" }}>
-            Entrar
-          </button>
+          <button onClick={onEnter} className="btn-green" style={{ background: C.green, color: "#fff", border: "none", borderRadius: 8, padding: "8px 20px", fontSize: 13, fontWeight: 500, cursor: "pointer" }}>Entrar</button>
         </div>
       </nav>
-      <section style={{ background: "linear-gradient(135deg, " + C.navy + ", #1e40af, #1d4ed8)", padding: "5rem 1.5rem 4rem", textAlign: "center" }}>
-        <h1 style={{ fontSize: "clamp(2rem,4vw,3rem)", fontWeight: 700, color: "#fff", lineHeight: 1.15, margin: "0 auto 1.25rem", maxWidth: 600 }}>
-          Controle total da sua vida financeira
-        </h1>
-        <p style={{ fontSize: 17, color: "rgba(255,255,255,.75)", lineHeight: 1.7, margin: "0 auto 2rem", maxWidth: 500 }}>
-          Parcelas, financiamento, múltiplas rendas e IA consultora. Grátis.
-        </p>
-        <button onClick={onEnter} className="btn-green" style={{ background: C.green, color: "#fff", border: "none", borderRadius: 10, padding: "14px 28px", fontSize: 15, fontWeight: 600, cursor: "pointer" }}>
-          Criar minha conta
-        </button>
+      <section style={{ background: "linear-gradient(135deg," + C.navy + ",#1e40af,#1d4ed8)", padding: "5rem 1.5rem 4rem", textAlign: "center" }}>
+        <h1 style={{ fontSize: "clamp(2rem,4vw,3rem)", fontWeight: 700, color: "#fff", lineHeight: 1.15, margin: "0 auto 1.25rem", maxWidth: 600 }}>Controle total da sua vida financeira</h1>
+        <p style={{ fontSize: 17, color: "rgba(255,255,255,.75)", lineHeight: 1.7, margin: "0 auto 2rem", maxWidth: 500 }}>Parcelas, financiamento, múltiplas rendas e IA consultora. Grátis.</p>
+        <button onClick={onEnter} className="btn-green" style={{ background: C.green, color: "#fff", border: "none", borderRadius: 10, padding: "14px 28px", fontSize: 15, fontWeight: 600, cursor: "pointer" }}>Criar minha conta</button>
       </section>
     </div>
   );
 }
 
-        
-/* ════ ROOT APP ════ */
+/* ════ ROOT ════ */
 export default function App() {
   const [screen, setScreen] = useState("landing");
   const [session, setSession] = useState(null);
