@@ -494,6 +494,7 @@ function GerenciarCategorias({ token, catsR, catsD, onCategoriasChange }) {
   );
 }
 
+/* ════ DASHBOARD COM PROTEÇÃO RADICAL ════ */
 /* ════ DASHBOARD COMPLETO ════ */
 function Dashboard({ session, onLogout }) {
   const [aba, setAba] = useState("dashboard");
@@ -1475,7 +1476,7 @@ function Dashboard({ session, onLogout }) {
     </div>
   );
 }
-              /* ════ LANDING ════ */
+/* ════ LANDING ════ */
 function Landing({ onEnter }) {
   return (
     <div style={{ color: "#1E293B" }}>
