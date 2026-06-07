@@ -271,4 +271,3 @@ function DashboardContent({ tR, tD, saldo, inv, fin, rec, desp, metas, setAba })
 }
 
 export default Dashboard;
-}
