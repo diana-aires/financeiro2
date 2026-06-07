@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { C, styles } from '../../styles/theme';
 import { extractDataFromPDF } from '../../services/pdfService';
-import { sb } from '../../services/supabase';
+import sb from '../../services/supabase'; // CORRIGIDO: era `import { sb }` → default export
 import { fmt } from '../../utils/formatters';
 
 export function ImportFaturaModal({ isOpen, onClose, onImport, token, uid }) {
@@ -9,7 +9,7 @@ export function ImportFaturaModal({ isOpen, onClose, onImport, token, uid }) {
   const [loading, setLoading] = useState(false);
   const [preview, setPreview] = useState([]);
   const [processing, setProcessing] = useState(false);
-  
+
   const handleFileChange = (e) => {
     const selectedFile = e.target.files[0];
     if (selectedFile && selectedFile.type === 'application/pdf') {
@@ -20,7 +20,7 @@ export function ImportFaturaModal({ isOpen, onClose, onImport, token, uid }) {
       e.target.value = '';
     }
   };
-  
+
   const handlePreview = async () => {
     if (!file) return;
     setLoading(true);
@@ -33,41 +33,32 @@ export function ImportFaturaModal({ isOpen, onClose, onImport, token, uid }) {
     }
     setLoading(false);
   };
-  
+
   const checkDuplicate = async (transaction) => {
     const fiveDaysAgo = new Date();
     fiveDaysAgo.setDate(fiveDaysAgo.getDate() - 5);
     const fiveDaysAgoStr = fiveDaysAgo.toISOString().split('T')[0];
-    
-    const existing = await sb(`/lancamentos?data_compra=gte.${fiveDaysAgoStr}&descricao=ilike.*${encodeURIComponent(transaction.descricao.substring(0, 30))}*&valor=eq.${transaction.valor}&select=id`, { token });
-    
+
+    const existing = await sb(
+      `/lancamentos?data_compra=gte.${fiveDaysAgoStr}&descricao=ilike.*${encodeURIComponent(transaction.descricao.substring(0, 30))}*&valor=eq.${transaction.valor}&select=id`,
+      { token }
+    );
     return Array.isArray(existing) && existing.length > 0;
   };
-  
+
   const handleImport = async () => {
     if (preview.length === 0) return;
     setProcessing(true);
-    
-    let novos = 0;
-    let duplicados = 0;
-    let erros = 0;
-    
+
+    let novos = 0, duplicados = 0, erros = 0;
+
     for (const transaction of preview) {
       try {
         const isDuplicate = await checkDuplicate(transaction);
-        
         if (!isDuplicate) {
-          const obj = {
-            ...transaction,
-            user_id: uid
-          };
-          
-          const result = await sb("/lancamentos", { method: "POST", token, body: obj });
-          if (result && (result.id || result.success !== false)) {
-            novos++;
-          } else {
-            erros++;
-          }
+          const result = await sb("/lancamentos", { method: "POST", token, body: { ...transaction, user_id: uid } });
+          if (result && (result.id || result.success !== false)) novos++;
+          else erros++;
         } else {
           duplicados++;
         }
@@ -76,19 +67,15 @@ export function ImportFaturaModal({ isOpen, onClose, onImport, token, uid }) {
         erros++;
       }
     }
-    
+
     alert(`Importação concluída!\n✅ Novos: ${novos}\n⚠️ Duplicados: ${duplicados}\n❌ Erros: ${erros}`);
-    
-    if (novos > 0) {
-      onImport();
-    }
-    
+    if (novos > 0) onImport();
     setProcessing(false);
     onClose();
   };
-  
+
   if (!isOpen) return null;
-  
+
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 700, width: '90%' }}>
@@ -99,7 +86,7 @@ export function ImportFaturaModal({ isOpen, onClose, onImport, token, uid }) {
               <i className="ti ti-x" style={{ fontSize: 20, color: C.grayD }} />
             </button>
           </div>
-          
+
           <div style={{ marginBottom: 20 }}>
             <label style={styles.label}>Selecione o arquivo PDF da fatura</label>
             <input type="file" accept=".pdf" onChange={handleFileChange} style={{ ...styles.input, padding: '10px' }} />
@@ -107,20 +94,20 @@ export function ImportFaturaModal({ isOpen, onClose, onImport, token, uid }) {
               Suporta faturas de cartão de crédito em formato PDF
             </div>
           </div>
-          
+
           {file && !loading && preview.length === 0 && (
             <button onClick={handlePreview} style={styles.buttonPrimary}>
               <i className="ti ti-eye" /> Visualizar transações
             </button>
           )}
-          
+
           {loading && (
             <div style={{ textAlign: 'center', padding: '2rem' }}>
               <i className="ti ti-loader-2" style={{ animation: 'spin 1s linear infinite', fontSize: 32 }} />
               <div style={{ marginTop: 10, fontSize: 13, color: C.grayD }}>Processando PDF...</div>
             </div>
           )}
-          
+
           {preview.length > 0 && !processing && (
             <>
               <div style={{ marginBottom: 15 }}>
@@ -148,7 +135,6 @@ export function ImportFaturaModal({ isOpen, onClose, onImport, token, uid }) {
                   </table>
                 </div>
               </div>
-              
               <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
                 <button onClick={onClose} style={{ ...styles.buttonPrimary, background: C.grayD }}>Cancelar</button>
                 <button onClick={handleImport} style={styles.buttonSuccess}>
@@ -157,7 +143,7 @@ export function ImportFaturaModal({ isOpen, onClose, onImport, token, uid }) {
               </div>
             </>
           )}
-          
+
           {processing && (
             <div style={{ textAlign: 'center', padding: '2rem' }}>
               <i className="ti ti-loader-2" style={{ animation: 'spin 1s linear infinite', fontSize: 32 }} />
