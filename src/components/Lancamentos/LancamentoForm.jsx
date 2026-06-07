@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { supabase } from '../../lib/supabase'; // Ajuste o caminho conforme sua configuração
 import { C, styles } from '../../styles/theme';
 import { CARTOES } from '../../utils/constants';
 
@@ -8,21 +9,67 @@ export function LancamentoForm({
 }) {
   const [showModal, setShowModal] = useState(false);
   const [novoCartaoNome, setNovoCartaoNome] = useState('');
+  const [savingCartao, setSavingCartao] = useState(false);
 
-  const handleAdicionarCartao = () => {
-    if (novoCartaoNome && novoCartaoNome.trim()) {
-      const cartaoNome = novoCartaoNome.trim();
-      if (!cartoes.includes(cartaoNome)) {
-        setCartoes([...cartoes, cartaoNome]);
-        setForm((f) => ({ ...f, cartao: cartaoNome }));
-        toast(`✅ Cartão "${cartaoNome}" adicionado!`);
-        setShowModal(false);
-        setNovoCartaoNome('');
-      } else {
-        toast(`⚠️ Cartão "${cartaoNome}" já existe!`);
-      }
-    } else {
+  const handleAdicionarCartao = async () => {
+    if (!novoCartaoNome || !novoCartaoNome.trim()) {
       toast(`⚠️ Digite um nome válido!`);
+      return;
+    }
+
+    const cartaoNome = novoCartaoNome.trim();
+    
+    // Verificar duplicata localmente
+    if (cartoes.includes(cartaoNome)) {
+      toast(`⚠️ Cartão "${cartaoNome}" já existe!`);
+      return;
+    }
+
+    setSavingCartao(true);
+
+    try {
+      // Obter o usuário atual
+      const { data: { user } } = await supabase.auth.getUser();
+      
+      if (!user) {
+        toast(`❌ Usuário não autenticado!`);
+        return;
+      }
+
+      // Salvar no banco de dados
+      const { data, error } = await supabase
+        .from('cartoes')
+        .insert([
+          {
+            nome: cartaoNome,
+            user_id: user.id,
+            ativo: true,
+            created_at: new Date().toISOString()
+          }
+        ])
+        .select();
+
+      if (error) {
+        console.error('Erro ao salvar cartão:', error);
+        toast(`❌ Erro ao salvar cartão: ${error.message}`);
+        return;
+      }
+
+      // Atualizar estado local com o novo cartão
+      setCartoes([...cartoes, cartaoNome]);
+      setForm((f) => ({ ...f, cartao: cartaoNome }));
+      
+      toast(`✅ Cartão "${cartaoNome}" adicionado com sucesso!`);
+      
+      // Fechar modal e limpar campo
+      setShowModal(false);
+      setNovoCartaoNome('');
+      
+    } catch (error) {
+      console.error('Erro inesperado:', error);
+      toast(`❌ Erro inesperado ao salvar cartão`);
+    } finally {
+      setSavingCartao(false);
     }
   };
 
@@ -113,7 +160,7 @@ export function LancamentoForm({
           alignItems: "center",
           justifyContent: "center",
           zIndex: 1000
-        }} onClick={() => setShowModal(false)}>
+        }} onClick={() => !savingCartao && setShowModal(false)}>
           <div style={{
             backgroundColor: "white",
             borderRadius: 12,
@@ -124,13 +171,14 @@ export function LancamentoForm({
           }} onClick={(e) => e.stopPropagation()}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
               <h3 style={{ margin: 0, fontSize: 18, fontWeight: 600, color: C.navy }}>Novo Cartão</h3>
-              <button onClick={() => setShowModal(false)} style={{
+              <button onClick={() => !savingCartao && setShowModal(false)} style={{
                 background: "none",
                 border: "none",
                 fontSize: 20,
                 cursor: "pointer",
-                color: C.gray
-              }}>✕</button>
+                color: C.gray,
+                opacity: savingCartao ? 0.5 : 1
+              }} disabled={savingCartao}>✕</button>
             </div>
             
             <div style={{ marginBottom: 20 }}>
@@ -143,37 +191,58 @@ export function LancamentoForm({
                 style={styles.input}
                 onKeyDown={(e) => e.key === "Enter" && handleAdicionarCartao()}
                 autoFocus
+                disabled={savingCartao}
               />
             </div>
             
             <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
               <button 
                 onClick={() => setShowModal(false)}
+                disabled={savingCartao}
                 style={{
                   padding: "8px 16px",
                   borderRadius: 6,
                   border: "1px solid " + C.border,
                   backgroundColor: "white",
-                  cursor: "pointer",
-                  color: C.gray
+                  cursor: savingCartao ? "not-allowed" : "pointer",
+                  color: C.gray,
+                  opacity: savingCartao ? 0.5 : 1
                 }}
               >
                 Cancelar
               </button>
               <button 
                 onClick={handleAdicionarCartao}
+                disabled={savingCartao}
                 style={{
                   ...styles.buttonPrimary,
                   padding: "8px 16px",
-                  borderRadius: 6
+                  borderRadius: 6,
+                  opacity: savingCartao ? 0.7 : 1,
+                  cursor: savingCartao ? "wait" : "pointer"
                 }}
               >
-                Adicionar
+                {savingCartao ? (
+                  <>
+                    <i className="ti ti-loader-2" style={{ animation: "spin 1s linear infinite", marginRight: 6 }} />
+                    Salvando...
+                  </>
+                ) : (
+                  "Adicionar"
+                )}
               </button>
             </div>
           </div>
         </div>
       )}
+
+      {/* Adicione este style para a animação de loading */}
+      <style>{`
+        @keyframes spin {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
+      `}</style>
     </div>
   );
 }
