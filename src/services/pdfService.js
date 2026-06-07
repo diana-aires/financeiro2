@@ -107,3 +107,45 @@ function extractTransaction(line, dateMatch, valueMatch, dueDate) {
 // Função para categorizar automaticamente
 function categorizeTransaction(description) {
   const keywords = {
+    'SUPERMERCADO|MERCADO|PADARIA|ACOUGUE|FEIRA': 'Alimentação',
+    'UBER|TAXI|99|TRANSPORTE|GASOLINA|POSTO': 'Transporte',
+    'NETFLIX|SPOTIFY|AMAZON PRIME|DISNEY|HBO|STREAMING': 'Assinaturas',
+    'FARMACIA|DROGARIA|SAUDE|MEDICO|DENTISTA': 'Saúde',
+    'RESTAURANTE|IFOOD|COMIDA|LANCHONETE': 'Alimentação',
+    'SHOPPING|LOJA|MAGAZINE|MERCADO LIVRE': 'Compras',
+    'LUZ|ENERGIA|AGUA|GAS|TELEFONE|INTERNET': 'Contas',
+    'ACADEMIA|GINASTICA|ESPORTE': 'Saúde',
+    'VIAGEM|HOTEL|PASSAGEM': 'Viagem',
+    'CINEMA|TEATRO|SHOW|LAZER': 'Lazer'
+  };
+  
+  const upperDesc = description.toUpperCase();
+  for (const [pattern, category] of Object.entries(keywords)) {
+    if (new RegExp(pattern, 'i').test(upperDesc)) {
+      return category;
+    }
+  }
+  return 'Outro';
+}
+
+// Função para converter data
+export function convertDateToISO(dateStr) {
+  let day, month, year;
+  if (dateStr.includes('/')) {
+    const parts = dateStr.split('/');
+    day = parts[0].padStart(2, '0');
+    month = parts[1].padStart(2, '0');
+    if (parts.length === 3) {
+      year = parts[2];
+    } else {
+      year = new Date().getFullYear();
+      const currentMonth = new Date().getMonth() + 1;
+      if (parseInt(month) < currentMonth) {
+        year++;
+      }
+    }
+  } else {
+    return dateStr;
+  }
+  return `${year}-${month}-${day}`;
+}
