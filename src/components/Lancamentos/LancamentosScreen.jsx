@@ -145,6 +145,8 @@ export function LancamentosScreen({ lancamentos, categorias, catsRList, catsDLis
         salvar={salvar}
         cancelarEdicao={cancelarEdicao}
         toast={toast}
+        token={token}        // <-- ADICIONE ESTA LINHA
+        uid={uid} 
       />
       
       <LancamentosList 
