@@ -73,14 +73,11 @@ async function sb(path, opts = {}) {
     
     // Para respostas 201 (Created) ou 204 (No Content)
     if (response.status === 201 || response.status === 204) {
-      // Tentar obter o corpo da resposta
       const text = await response.text();
       
       if (!text || text.trim() === '') {
         console.log(`✅ ${method} realizado com sucesso (sem dados retornados)`);
-        // Para POST, tentar buscar o item recém-criado
         if (method === "POST" && body) {
-          // Buscar pelo item mais recente do usuário
           const userId = body.user_id;
           if (userId) {
             const latest = await sb(`/lancamentos?user_id=eq.${userId}&order=created_at.desc&limit=1`, { token });
@@ -98,7 +95,6 @@ async function sb(path, opts = {}) {
       }
     }
     
-    // Para outros status
     if (!response.ok) {
       const errorText = await response.text();
       console.error('❌ Erro na requisição:', response.status, errorText);
@@ -166,7 +162,7 @@ function Bar({ pct, color }) {
   );
 }
 
-const BLANK = { tipo: "receita", cat: CATS_R[0], descricao: "", valor: "", data: today(), parcelas: "", parcela_atual: "", cartao: "" };
+const BLANK = { tipo: "receita", cat: CATS_R[0], descricao: "", valor: "", data_compra: today(), data_vencimento: today(), parcelas: "", parcela_atual: "", cartao: "" };
 const CATEGORIA_BLANK = { tipo: "despesa", nome: "", classificacao: "fixa", icone: "ti-tag", ativo: true };
 
 const CSS = `
@@ -269,40 +265,22 @@ function AuthScreen({ onAuth }) {
 }
 
 /* ════ GERENCIAMENTO DE CATEGORIAS ════ */
-function GerenciarCategorias({ token, catsR, catsD, onCategoriasChange }) {
+function GerenciarCategorias({ token, onCategoriasChange }) {
   const [categorias, setCategorias] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [editando, setEditando] = useState(null);
   const [form, setForm] = useState({ ...CATEGORIA_BLANK });
   const [toastMsg, setToastMsg] = useState("");
-const [toastType, setToastType] = useState("success"); // success, error, warning
-
-function toast(message, type = "success") {
-  setToastMsg(message);
-  setToastType(type);
-  setTimeout(() => {
-    setToastMsg("");
-    setToastType("success");
-  }, 3000);
-}
-
-function toastError(message) {
-  toast(message, "error");
-}
   const [filtroTipo, setFiltroTipo] = useState("todos");
   const [filtroClassificacao, setFiltroClassificacao] = useState("todos");
 
   function toast(m) { setToastMsg(m); setTimeout(() => setToastMsg(""), 3000); }
 
- useEffect(() => {
-  console.log('🚀 Dashboard inicializado');
-  console.log('📊 Estado atual:', {
-    totalLancamentos: safeLanc.length,
-    totalMetas: safeMetas.length,
-    categoriasCount: categorias.length
-  });
-}, [safeLanc.length, safeMetas.length, categorias.length]);
+  useEffect(() => {
+    if (!token) return;
+    carregarCategorias();
+  }, [token]);
 
   async function carregarCategorias() {
     setLoading(true);
@@ -312,45 +290,36 @@ function toastError(message) {
   }
 
   async function salvarCategoria() {
-  if (!form.nome.trim()) {
-    toast("Preencha o nome da categoria");
-    return;
-  }
-
-  const obj = {
-    tipo: form.tipo,
-    nome: form.nome.trim(),
-    classificacao: form.classificacao,
-    icone: form.icone,
-    ativo: true,
-    user_id: token ? uid : null // Se tiver token, associa ao usuário
-  };
-
-  try {
-    if (editando) {
-      await sb("/categorias?id=eq." + editando.id, { 
-        method: "PATCH", 
-        token, 
-        body: obj 
-      });
-      toast("✅ Categoria atualizada!");
-    } else {
-      await sb("/categorias", { 
-        method: "POST", 
-        token, 
-        body: obj 
-      });
-      toast("✅ Categoria adicionada!");
+    if (!form.nome.trim()) {
+      toast("Preencha o nome da categoria");
+      return;
     }
-    
-    await carregarCategorias();
-    if (onCategoriasChange) onCategoriasChange();
-    fecharModal();
-  } catch (e) {
-    console.error('Erro:', e);
-    toast("❌ Erro: " + e.message);
+
+    const obj = {
+      tipo: form.tipo,
+      nome: form.nome.trim(),
+      classificacao: form.classificacao,
+      icone: form.icone,
+      ativo: true,
+      ordem: categorias.filter(c => c.tipo === form.tipo).length + 1
+    };
+
+    try {
+      if (editando) {
+        await sb("/categorias?id=eq." + editando.id, { method: "PATCH", token, body: obj });
+        toast("Categoria atualizada!");
+      } else {
+        await sb("/categorias", { method: "POST", token, body: obj });
+        toast("Categoria adicionada!");
+      }
+      await carregarCategorias();
+      if (onCategoriasChange) onCategoriasChange();
+      fecharModal();
+    } catch (e) {
+      console.error('Erro:', e);
+      toast("Erro: " + e.message);
+    }
   }
-}
 
   async function desativarCategoria(cat) {
     if (window.confirm(`Desativar a categoria "${cat.nome}"? Lançamentos existentes não serão afetados.`)) {
@@ -462,6 +431,7 @@ function toastError(message) {
                     </div>
                     <div style={{ display: "flex", gap: 4 }}>
                       <button onClick={() => abrirModal(cat)} style={btnI}><i className="ti ti-edit" style={{ fontSize: 12, color: C.navy }} /></button>
+                      <button onClick={() => desativarCategoria(cat)} style={btnI}><i className="ti ti-trash" style={{ fontSize: 12, color: C.red }} /></button>
                     </div>
                   </div>
                 ))}
@@ -486,6 +456,7 @@ function toastError(message) {
                     </div>
                     <div style={{ display: "flex", gap: 4 }}>
                       <button onClick={() => abrirModal(cat)} style={btnI}><i className="ti ti-edit" style={{ fontSize: 12, color: C.navy }} /></button>
+                      <button onClick={() => desativarCategoria(cat)} style={btnI}><i className="ti ti-trash" style={{ fontSize: 12, color: C.red }} /></button>
                     </div>
                   </div>
                 ))}
@@ -562,10 +533,8 @@ function toastError(message) {
   );
 }
 
-/* ════ DASHBOARD COM PROTEÇÃO RADICAL ════ */
 /* ════ DASHBOARD COMPLETO ════ */
 function Dashboard({ session, onLogout }) {
-  // ========== 1. TODOS OS STATES PRIMEIRO ==========
   const [aba, setAba] = useState("dashboard");
   const [lanc, setLanc] = useState([]);
   const [metas, setMetas] = useState([]);
@@ -579,23 +548,33 @@ function Dashboard({ session, onLogout }) {
   const [aiLoad, setAiLoad] = useState(false);
   const [aiQ, setAiQ] = useState("");
   const [toastMsg, setToastMsg] = useState("");
-  const [toastType, setToastType] = useState("success");
   const [showParcela, setShowParcela] = useState(false);
   const [cartoes, setCartoes] = useState(CARTOES);
   const [metaModalAberto, setMetaModalAberto] = useState(false);
   const [metaEditando, setMetaEditando] = useState(null);
   const [metaForm, setMetaForm] = useState({ nome: "", valor: 0, atual: 0, prazo: "", cor: "navy" });
 
-  // ========== 2. FUNÇÕES DE TOAST ==========
-  function toast(message, type = "success") {
-    setToastMsg(message);
-    setToastType(type);
-    setTimeout(() => setToastMsg(""), 3000);
-  }
-
-  // ========== 3. VARIÁVEIS DERIVADAS (safeLanc, safeMetas) ==========
   const token = session?.access_token;
   const uid = session?.user?.id;
+
+  function toast(m) { setToastMsg(m); setTimeout(() => setToastMsg(""), 3000); }
+
+  const calcularDataVencimento = (dataCompra, parcelaAtual) => {
+    if (!dataCompra || !parcelaAtual) return dataCompra;
+    const data = new Date(dataCompra);
+    data.setMonth(data.getMonth() + (parcelaAtual - 1));
+    return data.toISOString().split("T")[0];
+  };
+
+  // Carregar categorias do banco
+  useEffect(() => {
+    if (!token) return;
+    sb("/categorias?order=ordem.asc", { token })
+      .then(data => {
+        if (Array.isArray(data)) setCategorias(data);
+      })
+      .catch(err => console.error('Erro ao carregar categorias:', err));
+  }, [token]);
 
   const safeLanc = useMemo(() => {
     if (!lanc) return [];
@@ -609,10 +588,6 @@ function Dashboard({ session, onLogout }) {
     return metas;
   }, [metas]);
 
-  // Para facilitar, criar um alias
-  const lancamentos = safeLanc;
-
-  // ========== 4. CATEGORIAS DINÂMICAS ==========
   const catsRFromDB = categorias.filter(c => c.tipo === "receita" && c.ativo).map(c => c.nome);
   const catsDFromDB = categorias.filter(c => c.tipo === "despesa" && c.ativo).map(c => c.nome);
   const catsRList = catsRFromDB.length > 0 ? catsRFromDB : CATS_R;
@@ -627,45 +602,32 @@ function Dashboard({ session, onLogout }) {
   const TIPO_R_DINAMICO = Object.keys(tipoRFromDB).length > 0 ? tipoRFromDB : TIPO_R;
   const TIPO_D_DINAMICO = Object.keys(tipoDFromDB).length > 0 ? tipoDFromDB : TIPO_D;
 
-  // ========== 5. FUNÇÕES AUXILIARES ==========
-  const calcularDataVencimento = (dataCompra, parcelaAtual) => {
-    if (!dataCompra || !parcelaAtual) return dataCompra;
-    const data = new Date(dataCompra);
-    data.setMonth(data.getMonth() + (parcelaAtual - 1));
-    return data.toISOString().split("T")[0];
-  };
-
-  // ========== 6. LOADING E CARREGAMENTO ==========
+  // Carregar dados iniciais
   useEffect(() => {
     if (!token) return;
     setLoading(true);
     
     Promise.all([
-      sb("/categorias?order=ordem.asc", { token }),
       sb("/lancamentos?order=data_vencimento.desc", { token }),
       sb("/metas?order=id.asc", { token }),
-    ]).then(([cats, lancs, metasData]) => {
-      if (Array.isArray(cats)) setCategorias(cats);
-      if (Array.isArray(lancs)) setLanc(lancs);
-      if (Array.isArray(metasData)) setMetas(metasData);
+    ]).then(([ls, ms]) => {
+      setLanc(Array.isArray(ls) ? ls : []);
+      setMetas(Array.isArray(ms) ? ms : []);
+      
+      if (!ms || ms.length === 0) {
+        Promise.all(METAS_DEF.map((m) => sb("/metas", { method: "POST", token, body: { ...m, user_id: uid } })))
+          .then((results) => {
+            const novasMetas = results.filter(r => r && r.id);
+            if (novasMetas.length > 0) setMetas(novasMetas);
+          })
+          .catch(() => {});
+      }
     }).catch((e) => {
-      console.error('❌ Erro:', e);
-      toast("Erro: " + e.message, "error");
+      console.error('❌ Erro no carregamento:', e);
+      toast("Erro: " + e.message);
     }).finally(() => setLoading(false));
-  }, [token]);
+  }, [token, uid]);
 
-  // ========== 7. DEBUG (AGORA safeLanc JÁ EXISTE) ==========
-  useEffect(() => {
-    console.log('🚀 Dashboard inicializado');
-    console.log('📊 Estado atual:', {
-      totalLancamentos: safeLanc.length,
-      totalMetas: safeMetas.length,
-      categoriasCount: categorias.length
-    });
-  }, [safeLanc.length, safeMetas.length, categorias.length]);
-
-  const lancamentos = safeLanc;
-  
   // Salvar meta (criar ou editar)
   async function salvarMeta() {
     if (!metaForm.nome.trim() || metaForm.valor <= 0) {
@@ -748,15 +710,6 @@ function Dashboard({ session, onLogout }) {
   }
   
   const sP = lF.reduce((s, l) => (l?.tipo === "receita" ? s + Number(l?.valor || 0) : s - Number(l?.valor || 0)), 0);
-  
-  const parcelasPorMes = {};
-  safeLanc.forEach(l => {
-    if (l?.parcelas && l.parcelas > 0 && l?.data_vencimento) {
-      const mes = l.data_vencimento.slice(0, 7);
-      if (!parcelasPorMes[mes]) parcelasPorMes[mes] = [];
-      parcelasPorMes[mes].push(l);
-    }
-  });
 
   function startEdit(l) {
     if (!l) return;
@@ -782,87 +735,57 @@ function Dashboard({ session, onLogout }) {
     setShowParcela(false); 
   }
 
- async function salvar() {
-  if (!form.descricao || !form.valor || !form.data_compra) {
-    toast("Preencha descrição, valor e data da compra", "warning");
-    return;
-  }
-  
-  setSaving(true);
-  
-  let dataVencimento = form.data_vencimento;
-  if (form.parcelas && form.parcela_atual && !form.data_vencimento) {
-    dataVencimento = calcularDataVencimento(form.data_compra, parseInt(form.parcela_atual));
-  }
-  
-  const obj = { 
-    tipo: form.tipo, 
-    cat: form.cat, 
-    descricao: form.descricao, 
-    valor: parseFloat(form.valor), 
-    data_compra: form.data_compra,
-    data_vencimento: dataVencimento || form.data_compra,
-    parcelas: form.parcelas ? parseInt(form.parcelas) : null, 
-    parcela_atual: form.parcela_atual ? parseInt(form.parcela_atual) : null, 
-    cartao: form.cartao || null,
-    user_id: uid
-  };
-  
-  try {
-    if (editId) {
-      // PATCH - atualizar
-      delete obj.user_id; // Não atualizar o user_id
-      delete obj.created_at; // Não atualizar timestamps
-      
-      const result = await sb("/lancamentos?id=eq." + editId, { 
-        method: "PATCH", 
-        token, 
-        body: obj 
-      });
-      
-      if (result.success !== false) {
-        // Atualizar o estado local
-        setLanc((prev) => {
-          const prevArray = Array.isArray(prev) ? prev : [];
-          return prevArray.map((l) => (l.id === editId ? { ...l, ...obj } : l));
-        });
-        toast("✅ Lançamento atualizado!");
-        cancelEdit();
-      } else {
-        throw new Error("Falha ao atualizar");
-      }
-    } else {
-      // POST - criar novo
-      const result = await sb("/lancamentos", { 
-        method: "POST", 
-        token, 
-        body: obj 
-      });
-      
-      // Recarregar a lista para garantir dados atualizados
-      const updated = await sb("/lancamentos?order=data_vencimento.desc", { token });
-      if (Array.isArray(updated)) {
-        setLanc(updated);
-      }
-      
-      toast("✅ Lançamento salvo!");
-      
-      // Limpar formulário
-      setForm({ 
-        ...BLANK, 
-        cat: form.tipo === "receita" ? catsRList[0] : catsDList[0],
-        data_compra: today(),
-        data_vencimento: today()
-      });
+  async function salvar() {
+    if (!form.descricao || !form.valor || !form.data_compra) {
+      toast("Preencha descrição, valor e data da compra");
+      return;
+    }
+    setSaving(true);
+    
+    let dataVencimento = form.data_vencimento;
+    if (form.parcelas && form.parcela_atual && !form.data_vencimento) {
+      dataVencimento = calcularDataVencimento(form.data_compra, parseInt(form.parcela_atual));
     }
     
-  } catch (e) { 
-    console.error('❌ Erro ao salvar:', e);
-    toast(`❌ Erro: ${e.message}`, "error"); 
-  } finally {
+    const obj = { 
+      tipo: form.tipo, 
+      cat: form.cat, 
+      descricao: form.descricao, 
+      valor: parseFloat(form.valor), 
+      data_compra: form.data_compra,
+      data_vencimento: dataVencimento || form.data_compra,
+      parcelas: form.parcelas ? parseInt(form.parcelas) : null, 
+      parcela_atual: form.parcela_atual ? parseInt(form.parcela_atual) : null, 
+      cartao: form.cartao || null,
+      user_id: uid
+    };
+    
+    try {
+      if (editId) {
+        const { user_id, ...updateObj } = obj;
+        await sb("/lancamentos?id=eq." + editId, { method: "PATCH", token, body: updateObj });
+        setLanc((prev) => {
+          const prevArray = Array.isArray(prev) ? prev : [];
+          return prevArray.map((l) => (l.id === editId ? { ...l, ...updateObj } : l));
+        });
+        toast("Atualizado!");
+        cancelEdit();
+      } else {
+        const d = await sb("/lancamentos", { method: "POST", token, body: obj });
+        const newItem = Array.isArray(d) && d.length > 0 ? d[0] : d;
+        setLanc((prev) => {
+          const prevArray = Array.isArray(prev) ? prev : [];
+          return [newItem, ...prevArray];
+        });
+        toast("Salvo!");
+        setForm({ ...BLANK, cat: form.tipo === "receita" ? catsRList[0] : catsDList[0] });
+      }
+    } catch (e) { 
+      console.error('Erro ao salvar:', e);
+      toast("Erro: " + e.message); 
+    }
     setSaving(false);
   }
-}
 
   async function duplicar(l) {
     if (!l) return;
@@ -934,7 +857,7 @@ function Dashboard({ session, onLogout }) {
         method: "POST", 
         headers: { "Content-Type": "application/json" }, 
         body: JSON.stringify({ 
-          model: "claude-sonnet-4-20250514", 
+          model: "claude-3-sonnet-20241022", 
           max_tokens: 1000, 
           system: sys, 
           messages: [{ role: "user", content: aiQ }] 
@@ -1059,410 +982,394 @@ function Dashboard({ session, onLogout }) {
         )}
 
         {/* ========== LANÇAMENTOS ========== */}
-       {aba === "lancamentos" && (
-  <div style={{ animation: "fadeUp .4s ease" }}>
-    <div style={{ ...crd, marginBottom: 14 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 12 }}>
-        <span style={{ fontWeight: 600, fontSize: 13, color: C.navy }}>{editId ? "Editando" : "Novo lançamento"}</span>
-        {editId && <button onClick={cancelEdit} style={{ fontSize: 12, color: C.red, background: "none", border: "none", cursor: "pointer" }}>Cancelar</button>}
-      </div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(130px,1fr))", gap: 8, marginBottom: 10 }}>
-        <div>
-          <label style={lab}>Tipo</label>
-          <select value={form.tipo} onChange={(e) => setForm((f) => ({ ...f, tipo: e.target.value, cat: e.target.value === "receita" ? catsRList[0] : catsDList[0] }))} style={inp}>
-            <option value="receita">Receita</option>
-            <option value="despesa">Despesa</option>
-          </select>
-        </div>
-        <div>
-          <label style={lab}>Categoria</label>
-          <select value={form.cat} onChange={(e) => setForm((f) => ({ ...f, cat: e.target.value }))} style={inp}>
-            {(form.tipo === "receita" ? catsRList : catsDList).map((c) => <option key={c}>{c}</option>)}
-          </select>
-        </div>
-        <div>
-          <label style={lab}>Data da Compra</label>
-          <input type="date" value={form.data_compra} onChange={(e) => setForm((f) => ({ ...f, data_compra: e.target.value }))} style={inp} />
-        </div>
-        <div>
-          <label style={lab}>Data Vencimento</label>
-          <input type="date" value={form.data_vencimento} onChange={(e) => setForm((f) => ({ ...f, data_vencimento: e.target.value }))} style={inp} />
-        </div>
-        <div>
-          <label style={lab}>Valor</label>
-          <input type="number" min="0" step="0.01" value={form.valor} onChange={(e) => setForm((f) => ({ ...f, valor: e.target.value }))} style={inp} />
-        </div>
-        <div style={{ gridColumn: "1 / -1" }}>
-          <label style={lab}>Descrição</label>
-          <input type="text" placeholder="Ex: Consultoria" value={form.descricao} onChange={(e) => setForm((f) => ({ ...f, descricao: e.target.value }))} style={inp} onKeyDown={(e) => e.key === "Enter" && salvar()} />
-        </div>
-      </div>
+        {aba === "lancamentos" && (
+          <div style={{ animation: "fadeUp .4s ease" }}>
+            <div style={{ ...crd, marginBottom: 14 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 12 }}>
+                <span style={{ fontWeight: 600, fontSize: 13, color: C.navy }}>{editId ? "Editando" : "Novo lançamento"}</span>
+                {editId && <button onClick={cancelEdit} style={{ fontSize: 12, color: C.red, background: "none", border: "none", cursor: "pointer" }}>Cancelar</button>}
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(130px,1fr))", gap: 8, marginBottom: 10 }}>
+                <div>
+                  <label style={lab}>Tipo</label>
+                  <select value={form.tipo} onChange={(e) => setForm((f) => ({ ...f, tipo: e.target.value, cat: e.target.value === "receita" ? catsRList[0] : catsDList[0] }))} style={inp}>
+                    <option value="receita">Receita</option>
+                    <option value="despesa">Despesa</option>
+                  </select>
+                </div>
+                <div>
+                  <label style={lab}>Categoria</label>
+                  <select value={form.cat} onChange={(e) => setForm((f) => ({ ...f, cat: e.target.value }))} style={inp}>
+                    {(form.tipo === "receita" ? catsRList : catsDList).map((c) => <option key={c}>{c}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label style={lab}>Data da Compra</label>
+                  <input type="date" value={form.data_compra} onChange={(e) => setForm((f) => ({ ...f, data_compra: e.target.value }))} style={inp} />
+                </div>
+                <div>
+                  <label style={lab}>Data Vencimento</label>
+                  <input type="date" value={form.data_vencimento} onChange={(e) => setForm((f) => ({ ...f, data_vencimento: e.target.value }))} style={inp} />
+                </div>
+                <div>
+                  <label style={lab}>Valor</label>
+                  <input type="number" min="0" step="0.01" value={form.valor} onChange={(e) => setForm((f) => ({ ...f, valor: e.target.value }))} style={inp} />
+                </div>
+                <div style={{ gridColumn: "1 / -1" }}>
+                  <label style={lab}>Descrição</label>
+                  <input type="text" placeholder="Ex: Consultoria" value={form.descricao} onChange={(e) => setForm((f) => ({ ...f, descricao: e.target.value }))} style={inp} onKeyDown={(e) => e.key === "Enter" && salvar()} />
+                </div>
+              </div>
 
-      <div style={{ marginBottom: 12 }}>
-        <button onClick={() => setShowParcela(!showParcela)} style={{ fontSize: 12, color: C.navy, fontWeight: 500, background: "none", border: "none", cursor: "pointer" }}>
-          {showParcela ? "▾" : "▸"} Parcelamento
-        </button>
-        {showParcela && (
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(120px,1fr))", gap: 8, marginTop: 8, padding: 10, background: C.slate, borderRadius: 10, border: "1px solid " + C.border }}>
-            <div>
-              <label style={lab}>Parcelas</label>
-              <input type="number" min="1" value={form.parcelas} onChange={(e) => setForm((f) => ({ ...f, parcelas: e.target.value }))} style={inp} />
+              <div style={{ marginBottom: 12 }}>
+                <button onClick={() => setShowParcela(!showParcela)} style={{ fontSize: 12, color: C.navy, fontWeight: 500, background: "none", border: "none", cursor: "pointer" }}>
+                  {showParcela ? "▾" : "▸"} Parcelamento
+                </button>
+                {showParcela && (
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(120px,1fr))", gap: 8, marginTop: 8, padding: 10, background: C.slate, borderRadius: 10, border: "1px solid " + C.border }}>
+                    <div>
+                      <label style={lab}>Parcelas</label>
+                      <input type="number" min="1" value={form.parcelas} onChange={(e) => setForm((f) => ({ ...f, parcelas: e.target.value }))} style={inp} />
+                    </div>
+                    <div>
+                      <label style={lab}>Atual</label>
+                      <input type="number" min="1" value={form.parcela_atual} onChange={(e) => setForm((f) => ({ ...f, parcela_atual: e.target.value }))} style={inp} />
+                    </div>
+                    <div>
+                      <label style={lab}>Cartão</label>
+                      <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                        <select value={form.cartao} onChange={(e) => setForm((f) => ({ ...f, cartao: e.target.value }))} style={{ ...inp, flex: 1 }}>
+                          <option value="">Selecione</option>
+                          {cartoes.map((c) => <option key={c} value={c}>{c}</option>)}
+                        </select>
+                        <button
+                          onClick={() => {
+                            let novoCartao = prompt("Digite o nome do novo cartão:", "");
+                            if (novoCartao && novoCartao.trim()) {
+                              novoCartao = novoCartao.trim();
+                              if (!cartoes.includes(novoCartao)) {
+                                setCartoes([...cartoes, novoCartao]);
+                                setForm((f) => ({ ...f, cartao: novoCartao }));
+                                toast(`✅ Cartão "${novoCartao}" adicionado!`);
+                              } else {
+                                toast(`⚠️ Cartão "${novoCartao}" já existe!`);
+                              }
+                            }
+                          }}
+                          style={{ ...btnP, padding: "6px 10px", borderRadius: 8 }}
+                          title="Adicionar novo cartão"
+                        >
+                          <i className="ti ti-plus" style={{ fontSize: 12 }} />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <button onClick={salvar} disabled={saving} style={{ ...btnP, padding: "9px 20px", borderRadius: 10 }}>
+                {saving ? <i className="ti ti-loader-2" style={{ animation: "spin 1s linear infinite" }} /> : <i className={"ti " + (editId ? "ti-check" : "ti-device-floppy")} />}
+                {editId ? "Atualizar" : "Salvar"}
+              </button>
             </div>
-            <div>
-              <label style={lab}>Atual</label>
-              <input type="number" min="1" value={form.parcela_atual} onChange={(e) => setForm((f) => ({ ...f, parcela_atual: e.target.value }))} style={inp} />
+
+            <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 10, flexWrap: "wrap" }}>
+              <select value={filtroMes} onChange={(e) => setFiltroMes(e.target.value)} style={{ ...inp, width: "auto" }}>
+                <option value="">Todos os meses ({safeLanc.length})</option>
+                {meses.map((m) => <option key={m} value={m}>{m.replace("-", "/")}</option>)}
+              </select>
+              <span style={{ marginLeft: "auto", fontSize: 11, color: C.green }}>Entr: {fmt(lF.filter((l) => l.tipo === "receita").reduce((s, l) => s + Number(l.valor), 0))}</span>
+              <span style={{ fontSize: 11, color: C.red }}>Saíd: {fmt(lF.filter((l) => l.tipo === "despesa").reduce((s, l) => s + Number(l.valor), 0))}</span>
             </div>
-            <div>
-              <label style={lab}>Cartão</label>
-              <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                <select value={form.cartao} onChange={(e) => setForm((f) => ({ ...f, cartao: e.target.value }))} style={{ ...inp, flex: 1 }}>
-                  <option value="">Selecione</option>
-                  {cartoes.map((c) => <option key={c} value={c}>{c}</option>)}
-                </select>
-                <button
+
+            <div style={crd}>
+              {lF.length === 0 ? (
+                <div style={{ textAlign: "center", padding: "2rem", color: C.grayD, fontSize: 13 }}>Nenhum lançamento.</div>
+              ) : (
+                <div style={{ overflowX: "auto" }}>
+                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+                    <thead>
+                      <tr style={{ borderBottom: "2px solid " + C.border }}>
+                        <th style={{ textAlign: "left", padding: "7px 8px", fontWeight: 600, color: C.grayD }}>Vencimento</th>
+                        <th style={{ textAlign: "left", padding: "7px 8px", fontWeight: 600, color: C.grayD }}>Compra</th>
+                        <th style={{ textAlign: "left", padding: "7px 8px", fontWeight: 600, color: C.grayD }}>Descrição</th>
+                        <th style={{ textAlign: "left", padding: "7px 8px", fontWeight: 600, color: C.grayD }}>Categoria</th>
+                        <th style={{ textAlign: "left", padding: "7px 8px", fontWeight: 600, color: C.grayD }}>Parcela</th>
+                        <th style={{ textAlign: "right", padding: "7px 8px", fontWeight: 600, color: C.grayD }}>Valor</th>
+                        <th style={{ textAlign: "center", padding: "7px 8px", fontWeight: 600, color: C.grayD }}>Ações</th>
+                      <tr>
+                    </thead>
+                    <tbody>
+                      {lF.map((l) => (
+                        <tr key={l.id} className="row-hover" style={{ borderBottom: "1px solid " + C.border }}>
+                          <td style={{ padding: 8, color: C.grayD, whiteSpace: "nowrap" }}>{l.data_vencimento?.split("-").reverse().join("/")}</td>
+                          <td style={{ padding: 8, color: C.grayD, whiteSpace: "nowrap" }}>{l.data_compra?.split("-").reverse().join("/")}</td>
+                          <td style={{ padding: 8, fontWeight: 500 }}>{l.descricao}</td>
+                          <td style={{ padding: 8 }}>
+                            <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 99, background: l.tipo === "receita" ? "#ECFDF5" : "#FEF2F2", color: l.tipo === "receita" ? C.greenD : C.red }}>
+                              {l.cat}
+                            </span>
+                          </td>
+                          <td style={{ padding: 8, fontSize: 10, color: C.grayD, whiteSpace: "nowrap" }}>
+                            {l.parcelas ? `${l.parcela_atual || 1}/${l.parcelas}` : "—"}
+                            {l.cartao && <span style={{ marginLeft: 4, fontSize: 9 }}>({l.cartao})</span>}
+                          </td>
+                          <td style={{ padding: 8, fontWeight: 700, color: l.tipo === "receita" ? C.green : C.red, textAlign: "right", whiteSpace: "nowrap" }}>
+                            {l.tipo === "despesa" ? "-" : ""}{fmt(l.valor)}
+                          </td>
+                          <td style={{ padding: 8, whiteSpace: "nowrap", textAlign: "center" }}>
+                            <button onClick={() => startEdit(l)} style={btnI}><i className="ti ti-edit" style={{ fontSize: 13, color: C.navy }} /></button>
+                            <button onClick={() => duplicar(l)} style={btnI}><i className="ti ti-copy" style={{ fontSize: 13, color: C.purple }} /></button>
+                            <button onClick={() => del(l.id)} style={btnI}><i className="ti ti-trash" style={{ fontSize: 13, color: C.red }} /></button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr style={{ borderTop: "2px solid " + C.border }}>
+                        <td colSpan={6} style={{ padding: 8, fontWeight: 600 }}>Saldo do período</td>
+                        <td style={{ padding: 8, fontWeight: 700, textAlign: "right", color: sP >= 0 ? C.green : C.red }}>{fmt(sP)}</td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ========== CARTÃO ========== */}
+        {aba === "cartao" && (
+          <div style={{ animation: "fadeUp .4s ease" }}>
+            <div style={{ ...crd, marginBottom: 14 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+                <div>
+                  <div style={{ fontWeight: 600, fontSize: 14, color: C.navy }}>Parcelas no cartão</div>
+                  <div style={{ fontSize: 12, color: C.grayD }}>
+                    Acompanhamento de compras parceladas
+                  </div>
+                </div>
+                <button 
                   onClick={() => {
                     let novoCartao = prompt("Digite o nome do novo cartão:", "");
                     if (novoCartao && novoCartao.trim()) {
                       novoCartao = novoCartao.trim();
                       if (!cartoes.includes(novoCartao)) {
                         setCartoes([...cartoes, novoCartao]);
-                        setForm((f) => ({ ...f, cartao: novoCartao }));
                         toast(`✅ Cartão "${novoCartao}" adicionado!`);
                       } else {
                         toast(`⚠️ Cartão "${novoCartao}" já existe!`);
                       }
                     }
                   }}
-                  style={{ ...btnP, padding: "6px 10px", borderRadius: 8 }}
-                  title="Adicionar novo cartão"
+                  style={{ ...btnS, gap: 6 }}
                 >
-                  <i className="ti ti-plus" style={{ fontSize: 12 }} />
+                  <i className="ti ti-plus" style={{ fontSize: 14 }} />
+                  Novo Cartão
                 </button>
               </div>
             </div>
+
+            {(() => {
+              const parceladosAtivos = safeLanc.filter(l => 
+                l.parcelas && 
+                l.parcelas > 0 && 
+                l.parcela_atual && 
+                l.parcela_atual <= l.parcelas
+              );
+              
+              const porCartao = parceladosAtivos.reduce((acc, l) => {
+                const cartao = l.cartao || "Sem cartão";
+                if (!acc[cartao]) acc[cartao] = [];
+                acc[cartao].push(l);
+                return acc;
+              }, {});
+              
+              const totalMensal = parceladosAtivos.reduce((s, l) => s + Number(l.valor), 0);
+              
+              return (
+                <>
+                  {parceladosAtivos.length === 0 ? (
+                    <div style={{ ...crd, textAlign: "center", padding: "2rem", color: C.grayD }}>
+                      <i className="ti ti-credit-card" style={{ fontSize: 48, display: "block", marginBottom: 12, opacity: 0.5 }} />
+                      <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 8 }}>Nenhuma parcela ativa</div>
+                      <div style={{ fontSize: 12 }}>
+                        Adicione compras parceladas nos lançamentos para ver o acompanhamento aqui.
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <div style={{ ...crd, marginBottom: 16, background: "linear-gradient(135deg, " + C.navy + "08, " + C.purple + "08)" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 16 }}>
+                          <div>
+                            <div style={{ fontSize: 12, color: C.grayD, marginBottom: 4 }}>Total por mês</div>
+                            <div style={{ fontSize: 24, fontWeight: 700, color: C.navy }}>{fmt(totalMensal)}</div>
+                          </div>
+                          <div>
+                            <div style={{ fontSize: 12, color: C.grayD, marginBottom: 4 }}>Parcelas ativas</div>
+                            <div style={{ fontSize: 24, fontWeight: 700, color: C.purple }}>{parceladosAtivos.length}</div>
+                          </div>
+                        </div>
+                      </div>
+                      
+                      {Object.entries(porCartao).map(([cartao, items]) => (
+                        <div key={cartao} style={{ ...crd, marginBottom: 16 }}>
+                          <div style={{ 
+                            display: "flex", 
+                            justifyContent: "space-between", 
+                            alignItems: "center", 
+                            marginBottom: 16,
+                            paddingBottom: 12,
+                            borderBottom: "2px solid " + C.border
+                          }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                              <div style={{ 
+                                width: 40, 
+                                height: 40, 
+                                borderRadius: 10, 
+                                background: C.navy + "12", 
+                                display: "flex", 
+                                alignItems: "center", 
+                                justifyContent: "center" 
+                              }}>
+                                <i className="ti ti-credit-card" style={{ fontSize: 20, color: C.navy }} />
+                              </div>
+                              <div>
+                                <div style={{ fontWeight: 700, fontSize: 16, color: C.navy }}>{cartao}</div>
+                                <div style={{ fontSize: 11, color: C.grayD }}>{items.length} parcela(s)</div>
+                              </div>
+                            </div>
+                            <div style={{ fontSize: 18, fontWeight: 700, color: C.navy }}>
+                              {fmt(items.reduce((s, l) => s + Number(l.valor), 0))}
+                              <span style={{ fontSize: 11, fontWeight: 400, color: C.grayD, marginLeft: 4 }}>/mês</span>
+                            </div>
+                          </div>
+                          
+                          <div style={{ overflowX: "auto" }}>
+                            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                              <thead>
+                                <tr style={{ borderBottom: "2px solid " + C.border, background: C.slate }}>
+                                  <th style={{ textAlign: "left", padding: "10px", fontWeight: 600, color: C.grayD }}>Descrição</th>
+                                  <th style={{ textAlign: "center", padding: "10px", fontWeight: 600, color: C.grayD }}>Parcela</th>
+                                  <th style={{ textAlign: "left", padding: "10px", fontWeight: 600, color: C.grayD }}>Progresso</th>
+                                  <th style={{ textAlign: "right", padding: "10px", fontWeight: 600, color: C.grayD }}>Valor</th>
+                                  <th style={{ textAlign: "right", padding: "10px", fontWeight: 600, color: C.grayD }}>Restante</th>
+                                  <th style={{ textAlign: "center", padding: "10px", fontWeight: 600, color: C.grayD }}>Ações</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {items.map((l, idx) => {
+                                  const pa = l.parcela_atual || 1;
+                                  const pt = l.parcelas || 1;
+                                  const pct = (pa / pt) * 100;
+                                  const rest = (pt - pa) * Number(l.valor);
+                                  const concluida = pa >= pt;
+                                  
+                                  return (
+                                    <tr 
+                                      key={l.id} 
+                                      style={{ 
+                                        borderBottom: idx === items.length - 1 ? "none" : "1px solid " + C.border,
+                                        opacity: concluida ? 0.6 : 1,
+                                        background: concluida ? C.green + "08" : "transparent"
+                                      }}
+                                    >
+                                      <td style={{ padding: "12px 10px", fontWeight: 500 }}>
+                                        {l.descricao}
+                                        {concluida && (
+                                          <span style={{ 
+                                            marginLeft: 8, 
+                                            fontSize: 10, 
+                                            padding: "2px 6px", 
+                                            borderRadius: 99, 
+                                            background: C.green + "20", 
+                                            color: C.green 
+                                          }}>
+                                            Concluída
+                                          </span>
+                                        )}
+                                      </td>
+                                      <td style={{ padding: "12px 10px", textAlign: "center", fontWeight: 600, color: C.navy }}>
+                                        {pa}/{pt}
+                                      </td>
+                                      <td style={{ padding: "12px 10px", minWidth: 150 }}>
+                                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                          <div style={{ flex: 1 }}>
+                                            <Bar pct={pct} color={concluida ? C.green : C.purple} />
+                                          </div>
+                                          <span style={{ fontSize: 11, fontWeight: 500, minWidth: 45, color: concluida ? C.green : C.purple }}>
+                                            {Math.round(pct)}%
+                                          </span>
+                                        </div>
+                                      </td>
+                                      <td style={{ padding: "12px 10px", textAlign: "right", fontWeight: 600, color: C.red }}>
+                                        {fmt(l.valor)}
+                                      </td>
+                                      <td style={{ padding: "12px 10px", textAlign: "right", color: concluida ? C.green : C.grayD }}>
+                                        {concluida ? (
+                                          "✓ Pago"
+                                        ) : (
+                                          <>
+                                            {fmt(rest)}
+                                            <span style={{ fontSize: 10, marginLeft: 4 }}>
+                                              ({pt - pa}x)
+                                            </span>
+                                          </>
+                                        )}
+                                      </td>
+                                      <td style={{ padding: "12px 10px", textAlign: "center", whiteSpace: "nowrap" }}>
+                                        {!concluida && (
+                                          <button
+                                            onClick={async () => {
+                                              if (window.confirm(`Marcar parcela ${pa}/${pt} como paga?`)) {
+                                                try {
+                                                  await sb("/lancamentos?id=eq." + l.id, {
+                                                    method: "PATCH",
+                                                    token,
+                                                    body: { parcela_atual: pa + 1 }
+                                                  });
+                                                  setLanc(prev => prev.map(item =>
+                                                    item.id === l.id ? { ...item, parcela_atual: pa + 1 } : item
+                                                  ));
+                                                  toast(`✅ Parcela ${pa}/${pt} paga!`);
+                                                } catch (err) {
+                                                  toast("❌ Erro ao atualizar parcela");
+                                                }
+                                              }
+                                            }}
+                                            style={btnI}
+                                            title="Marcar como paga"
+                                          >
+                                            <i className="ti ti-check" style={{ fontSize: 16, color: C.green }} />
+                                          </button>
+                                        )}
+                                        <button
+                                          onClick={() => {
+                                            if (window.confirm(`Remover este parcelamento?\nDescrição: ${l.descricao}\nValor: ${fmt(l.valor)}`)) {
+                                              del(l.id);
+                                            }
+                                          }}
+                                          style={btnI}
+                                          title="Remover"
+                                        >
+                                          <i className="ti ti-trash" style={{ fontSize: 16, color: C.red }} />
+                                        </button>
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      ))}
+                    </>
+                  )}
+                </>
+              );
+            })()}
           </div>
         )}
-      </div>
-
-      <button onClick={salvar} disabled={saving} style={{ ...btnP, padding: "9px 20px", borderRadius: 10 }}>
-        {saving ? <i className="ti ti-loader-2" style={{ animation: "spin 1s linear infinite" }} /> : <i className={"ti " + (editId ? "ti-check" : "ti-device-floppy")} />}
-        {editId ? "Atualizar" : "Salvar"}
-      </button>
-    </div>
-
-    <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 10, flexWrap: "wrap" }}>
-      <select value={filtroMes} onChange={(e) => setFiltroMes(e.target.value)} style={{ ...inp, width: "auto" }}>
-        <option value="">Todos os meses ({safeLanc.length})</option>
-        {meses.map((m) => <option key={m} value={m}>{m.replace("-", "/")}</option>)}
-      </select>
-      <span style={{ marginLeft: "auto", fontSize: 11, color: C.green }}>Entr: {fmt(lF.filter((l) => l.tipo === "receita").reduce((s, l) => s + Number(l.valor), 0))}</span>
-      <span style={{ fontSize: 11, color: C.red }}>Saíd: {fmt(lF.filter((l) => l.tipo === "despesa").reduce((s, l) => s + Number(l.valor), 0))}</span>
-    </div>
-
-    <div style={crd}>
-      {lF.length === 0 ? (
-        <div style={{ textAlign: "center", padding: "2rem", color: C.grayD, fontSize: 13 }}>Nenhum lançamento.</div>
-      ) : (
-        <div style={{ overflowX: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
-            <thead>
-              <tr style={{ borderBottom: "2px solid " + C.border }}>
-                <th style={{ textAlign: "left", padding: "7px 8px", fontWeight: 600, color: C.grayD }}>Vencimento</th>
-                <th style={{ textAlign: "left", padding: "7px 8px", fontWeight: 600, color: C.grayD }}>Compra</th>
-                <th style={{ textAlign: "left", padding: "7px 8px", fontWeight: 600, color: C.grayD }}>Descrição</th>
-                <th style={{ textAlign: "left", padding: "7px 8px", fontWeight: 600, color: C.grayD }}>Categoria</th>
-                <th style={{ textAlign: "left", padding: "7px 8px", fontWeight: 600, color: C.grayD }}>Parcela</th>
-                <th style={{ textAlign: "right", padding: "7px 8px", fontWeight: 600, color: C.grayD }}>Valor</th>
-                <th style={{ textAlign: "center", padding: "7px 8px", fontWeight: 600, color: C.grayD }}>Ações</th>
-              </tr>
-            </thead>
-            <tbody>
-              {lF.map((l) => (
-                <tr key={l.id} className="row-hover" style={{ borderBottom: "1px solid " + C.border }}>
-                  <td style={{ padding: 8, color: C.grayD, whiteSpace: "nowrap" }}>{l.data_vencimento?.split("-").reverse().join("/")}</td>
-                  <td style={{ padding: 8, color: C.grayD, whiteSpace: "nowrap" }}>{l.data_compra?.split("-").reverse().join("/")}</td>
-                  <td style={{ padding: 8, fontWeight: 500 }}>{l.descricao}</td>
-                  <td style={{ padding: 8 }}>
-                    <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 99, background: l.tipo === "receita" ? "#ECFDF5" : "#FEF2F2", color: l.tipo === "receita" ? C.greenD : C.red }}>
-                      {l.cat}
-                    </span>
-                  </td>
-                  <td style={{ padding: 8, fontSize: 10, color: C.grayD, whiteSpace: "nowrap" }}>
-                    {l.parcelas ? `${l.parcela_atual || 1}/${l.parcelas}` : "—"}
-                    {l.cartao && <span style={{ marginLeft: 4, fontSize: 9 }}>({l.cartao})</span>}
-                  </td>
-                  <td style={{ padding: 8, fontWeight: 700, color: l.tipo === "receita" ? C.green : C.red, textAlign: "right", whiteSpace: "nowrap" }}>
-                    {l.tipo === "despesa" ? "-" : ""}{fmt(l.valor)}
-                  </td>
-                  <td style={{ padding: 8, whiteSpace: "nowrap", textAlign: "center" }}>
-                    <button onClick={() => startEdit(l)} style={btnI}><i className="ti ti-edit" style={{ fontSize: 13, color: C.navy }} /></button>
-                    <button onClick={() => duplicar(l)} style={btnI}><i className="ti ti-copy" style={{ fontSize: 13, color: C.purple }} /></button>
-                    <button onClick={() => del(l.id)} style={btnI}><i className="ti ti-trash" style={{ fontSize: 13, color: C.red }} /></button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-            <tfoot>
-              <tr style={{ borderTop: "2px solid " + C.border }}>
-                <td colSpan={6} style={{ padding: 8, fontWeight: 600 }}>Saldo do período</td>
-                <td style={{ padding: 8, fontWeight: 700, textAlign: "right", color: sP >= 0 ? C.green : C.red }}>{fmt(sP)}</td>
-              </tr>
-            </tfoot>
-          </table>
-        </div>
-      )}
-    </div>
-  </div>
-)}
-        {/* ========== CARTÃO - PARCELAS POR MÊS ========== */}
-      {/* ========== CARTÃO - APENAS PARCELAS ATIVAS (SEM FUTURO) ========== */}
-{/* ========== CARTÃO - VERSÃO CORRIGIDA ========== */}
-{aba === "cartao" && (
-  <div style={{ animation: "fadeUp .4s ease" }}>
-    <div style={{ ...crd, marginBottom: 14 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-        <div>
-          <div style={{ fontWeight: 600, fontSize: 14, color: C.navy }}>Parcelas no cartão</div>
-          <div style={{ fontSize: 12, color: C.grayD }}>
-            Acompanhamento de compras parceladas
-          </div>
-        </div>
-        <button 
-          onClick={() => {
-            let novoCartao = prompt("Digite o nome do novo cartão:", "");
-            if (novoCartao && novoCartao.trim()) {
-              novoCartao = novoCartao.trim();
-              if (!cartoes.includes(novoCartao)) {
-                setCartoes([...cartoes, novoCartao]);
-                toast(`✅ Cartão "${novoCartao}" adicionado!`);
-              } else {
-                toast(`⚠️ Cartão "${novoCartao}" já existe!`, "warning");
-              }
-            }
-          }}
-          style={{ ...btnS, gap: 6 }}
-        >
-          <i className="ti ti-plus" style={{ fontSize: 14 }} />
-          Novo Cartão
-        </button>
-      </div>
-    </div>
-
-    {/* Verificação de segurança para safeLanc */}
-    {(() => {
-      // Garantir que safeLanc é um array
-      const lancamentosArray = Array.isArray(safeLanc) ? safeLanc : [];
-      
-      // Filtrar apenas lançamentos com parcelamento
-      const parcelados = lancamentosArray.filter(l => 
-        l && 
-        l.parcelas && 
-        l.parcelas > 0 && 
-        l.parcela_atual && 
-        l.parcela_atual <= l.parcelas
-      );
-      
-      // Agrupar por cartão
-      const porCartao = parcelados.reduce((acc, l) => {
-        const cartao = l.cartao || "Sem cartão";
-        if (!acc[cartao]) acc[cartao] = [];
-        acc[cartao].push(l);
-        return acc;
-      }, {});
-      
-      const totalMensal = parcelados.reduce((s, l) => s + Number(l.valor || 0), 0);
-      
-      return (
-        <>
-          {parcelados.length === 0 ? (
-            <div style={{ ...crd, textAlign: "center", padding: "2rem", color: C.grayD }}>
-              <i className="ti ti-credit-card" style={{ fontSize: 48, display: "block", marginBottom: 12, opacity: 0.5 }} />
-              <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 8 }}>Nenhuma parcela ativa</div>
-              <div style={{ fontSize: 12 }}>
-                Adicione compras parceladas nos lançamentos para ver o acompanhamento aqui.
-              </div>
-            </div>
-          ) : (
-            <>
-              {/* Resumo */}
-              <div style={{ ...crd, marginBottom: 16, background: "linear-gradient(135deg, " + C.navy + "08, " + C.purple + "08)" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 16 }}>
-                  <div>
-                    <div style={{ fontSize: 12, color: C.grayD, marginBottom: 4 }}>Total por mês</div>
-                    <div style={{ fontSize: 24, fontWeight: 700, color: C.navy }}>{fmt(totalMensal)}</div>
-                  </div>
-                  <div>
-                    <div style={{ fontSize: 12, color: C.grayD, marginBottom: 4 }}>Parcelas ativas</div>
-                    <div style={{ fontSize: 24, fontWeight: 700, color: C.purple }}>{parcelados.length}</div>
-                  </div>
-                  <div>
-                    <div style={{ fontSize: 12, color: C.grayD, marginBottom: 4 }}>Comprometimento</div>
-                    <div style={{ fontSize: 24, fontWeight: 700, color: totalMensal > 0 ? C.orange : C.green }}>
-                      {totalMensal > 0 ? "⚠️ Alto" : "✅ Saudável"}
-                    </div>
-                  </div>
-                </div>
-              </div>
-              
-              {/* Lista por cartão */}
-              {Object.entries(porCartao).map(([cartao, items]) => (
-                <div key={cartao} style={{ ...crd, marginBottom: 16 }}>
-                  <div style={{ 
-                    display: "flex", 
-                    justifyContent: "space-between", 
-                    alignItems: "center", 
-                    marginBottom: 16,
-                    paddingBottom: 12,
-                    borderBottom: "2px solid " + C.border
-                  }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                      <div style={{ 
-                        width: 40, 
-                        height: 40, 
- borderRadius: 10, 
-                        background: C.navy + "12", 
-                        display: "flex", 
-                        alignItems: "center", 
-                        justifyContent: "center" 
-                      }}>
-                        <i className="ti ti-credit-card" style={{ fontSize: 20, color: C.navy }} />
-                      </div>
-                      <div>
-                        <div style={{ fontWeight: 700, fontSize: 16, color: C.navy }}>{cartao}</div>
-                        <div style={{ fontSize: 11, color: C.grayD }}>{items.length} parcela(s)</div>
-                      </div>
-                    </div>
-                    <div style={{ fontSize: 18, fontWeight: 700, color: C.navy }}>
-                      {fmt(items.reduce((s, l) => s + Number(l.valor), 0))}
-                      <span style={{ fontSize: 11, fontWeight: 400, color: C.grayD, marginLeft: 4 }}>/mês</span>
-                    </div>
-                  </div>
-                  
-                  <div style={{ overflowX: "auto" }}>
-                    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-                      <thead>
-                        <tr style={{ borderBottom: "2px solid " + C.border, background: C.slate }}>
-                          <th style={{ textAlign: "left", padding: "10px", fontWeight: 600, color: C.grayD }}>Descrição</th>
-                          <th style={{ textAlign: "center", padding: "10px", fontWeight: 600, color: C.grayD }}>Parcela</th>
-                          <th style={{ textAlign: "left", padding: "10px", fontWeight: 600, color: C.grayD }}>Progresso</th>
-                          <th style={{ textAlign: "right", padding: "10px", fontWeight: 600, color: C.grayD }}>Valor</th>
-                          <th style={{ textAlign: "right", padding: "10px", fontWeight: 600, color: C.grayD }}>Restante</th>
-                          <th style={{ textAlign: "center", padding: "10px", fontWeight: 600, color: C.grayD }}>Ações</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {items.map((l, idx) => {
-                          const pa = l.parcela_atual || 1;
-                          const pt = l.parcelas || 1;
-                          const pct = (pa / pt) * 100;
-                          const rest = (pt - pa) * Number(l.valor);
-                          const concluida = pa >= pt;
-                          
-                          return (
-                            <tr 
-                              key={l.id} 
-                              style={{ 
-                                borderBottom: idx === items.length - 1 ? "none" : "1px solid " + C.border,
-                                opacity: concluida ? 0.6 : 1,
-                                background: concluida ? C.green + "08" : "transparent"
-                              }}
-                            >
-                              <td style={{ padding: "12px 10px", fontWeight: 500 }}>
-                                {l.descricao}
-                                {concluida && (
-                                  <span style={{ 
-                                    marginLeft: 8, 
-                                    fontSize: 10, 
-                                    padding: "2px 6px", 
-                                    borderRadius: 99, 
-                                    background: C.green + "20", 
-                                    color: C.green 
-                                  }}>
-                                    Concluída
-                                  </span>
-                                )}
-                              </td>
-                              <td style={{ padding: "12px 10px", textAlign: "center", fontWeight: 600, color: C.navy }}>
-                                {pa}/{pt}
-                              </td>
-                              <td style={{ padding: "12px 10px", minWidth: 150 }}>
-                                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                                  <div style={{ flex: 1 }}>
-                                    <Bar pct={pct} color={concluida ? C.green : C.purple} />
-                                  </div>
-                                  <span style={{ fontSize: 11, fontWeight: 500, minWidth: 45, color: concluida ? C.green : C.purple }}>
-                                    {Math.round(pct)}%
-                                  </span>
-                                </div>
-                              </td>
-                              <td style={{ padding: "12px 10px", textAlign: "right", fontWeight: 600, color: C.red }}>
-                                {fmt(l.valor)}
-                              </td>
-                              <td style={{ padding: "12px 10px", textAlign: "right", color: concluida ? C.green : C.grayD }}>
-                                {concluida ? (
-                                  "✓ Pago"
-                                ) : (
-                                  <>
-                                    {fmt(rest)}
-                                    <span style={{ fontSize: 10, marginLeft: 4 }}>
-                                      ({pt - pa}x)
-                                    </span>
-                                  </>
-                                )}
-                              </td>
-                              <td style={{ padding: "12px 10px", textAlign: "center", whiteSpace: "nowrap" }}>
-                                {!concluida && (
-                                  <button
-                                    onClick={async () => {
-                                      if (window.confirm(`Marcar parcela ${pa}/${pt} como paga?`)) {
-                                        try {
-                                          await sb("/lancamentos?id=eq." + l.id, {
-                                            method: "PATCH",
-                                            token,
-                                            body: { parcela_atual: pa + 1 }
-                                          });
-                                          setLanc(prev => prev.map(item =>
-                                            item.id === l.id ? { ...item, parcela_atual: pa + 1 } : item
-                                          ));
-                                          toast(`✅ Parcela ${pa}/${pt} paga!`);
-                                        } catch (err) {
-                                          toast("❌ Erro ao atualizar parcela", "error");
-                                        }
-                                      }
-                                    }}
-                                    style={btnI}
-                                    title="Marcar como paga"
-                                  >
-                                    <i className="ti ti-check" style={{ fontSize: 16, color: C.green }} />
-                                  </button>
-                                )}
-                                <button
-                                  onClick={() => {
-                                    if (window.confirm(`Remover este parcelamento?\nDescrição: ${l.descricao}\nValor: ${fmt(l.valor)}`)) {
-                                      del(l.id);
-                                    }
-                                  }}
-                                  style={btnI}
-                                  title="Remover"
-                                >
-                                  <i className="ti ti-trash" style={{ fontSize: 16, color: C.red }} />
-                                </button>
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              ))}
-            </>
-          )}
-        </>
-      );
-    })()}
-  </div>
-)}
 
         {/* ========== METAS ========== */}
         {aba === "metas" && (
@@ -1716,6 +1623,7 @@ function Dashboard({ session, onLogout }) {
     </div>
   );
 }
+
 /* ════ LANDING ════ */
 function Landing({ onEnter }) {
   return (
