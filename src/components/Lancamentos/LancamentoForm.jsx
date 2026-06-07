@@ -1,11 +1,12 @@
 import { useState } from 'react';
 import { sb } from '../../services/supabase';
+import { supabaseConfig } from '../../config/supabase';
 import { C, styles } from '../../styles/theme';
 import { CARTOES } from '../../utils/constants';
 
 export function LancamentoForm({ 
   form, setForm, editId, saving, showParcela, setShowParcela,
-  catsRList, catsDList, cartoes, setCartoes, salvar, cancelarEdicao, toast 
+  catsRList, catsDList, cartoes, setCartoes, salvar, cancelarEdicao, toast, token, uid 
 }) {
   const [showModal, setShowModal] = useState(false);
   const [novoCartaoNome, setNovoCartaoNome] = useState('');
@@ -28,46 +29,36 @@ export function LancamentoForm({
     setSavingCartao(true);
 
     try {
-      // Obter o usuário atual
-      const { data: { user } } = await supabase.auth.getUser();
-      
-      if (!user) {
-        toast(`❌ Usuário não autenticado!`);
-        return;
+      // Salvar no banco de dados usando a função sb()
+      const obj = {
+        nome: cartaoNome,
+        user_id: uid,
+        ativo: true,
+        created_at: new Date().toISOString()
+      };
+
+      const result = await sb("/cartoes", { 
+        method: "POST", 
+        token, 
+        body: obj 
+      });
+
+      if (result && (result.id || result.success !== false)) {
+        // Atualizar estado local com o novo cartão
+        setCartoes([...cartoes, cartaoNome]);
+        setForm((f) => ({ ...f, cartao: cartaoNome }));
+        toast(`✅ Cartão "${cartaoNome}" adicionado com sucesso!`);
+        
+        // Fechar modal e limpar campo
+        setShowModal(false);
+        setNovoCartaoNome('');
+      } else {
+        toast(`❌ Erro ao salvar cartão: Falha na resposta do servidor`);
       }
-
-      // Salvar no banco de dados
-      const { data, error } = await supabase
-        .from('cartoes')
-        .insert([
-          {
-            nome: cartaoNome,
-            user_id: user.id,
-            ativo: true,
-            created_at: new Date().toISOString()
-          }
-        ])
-        .select();
-
-      if (error) {
-        console.error('Erro ao salvar cartão:', error);
-        toast(`❌ Erro ao salvar cartão: ${error.message}`);
-        return;
-      }
-
-      // Atualizar estado local com o novo cartão
-      setCartoes([...cartoes, cartaoNome]);
-      setForm((f) => ({ ...f, cartao: cartaoNome }));
-      
-      toast(`✅ Cartão "${cartaoNome}" adicionado com sucesso!`);
-      
-      // Fechar modal e limpar campo
-      setShowModal(false);
-      setNovoCartaoNome('');
       
     } catch (error) {
       console.error('Erro inesperado:', error);
-      toast(`❌ Erro inesperado ao salvar cartão`);
+      toast(`❌ Erro inesperado ao salvar cartão: ${error.message}`);
     } finally {
       setSavingCartao(false);
     }
@@ -213,13 +204,13 @@ export function LancamentoForm({
               </button>
               <button 
                 onClick={handleAdicionarCartao}
-                disabled={savingCartao}
+                disabled={savingCartao || !novoCartaoNome.trim()}
                 style={{
                   ...styles.buttonPrimary,
                   padding: "8px 16px",
                   borderRadius: 6,
-                  opacity: savingCartao ? 0.7 : 1,
-                  cursor: savingCartao ? "wait" : "pointer"
+                  opacity: (savingCartao || !novoCartaoNome.trim()) ? 0.7 : 1,
+                  cursor: (savingCartao || !novoCartaoNome.trim()) ? "not-allowed" : "pointer"
                 }}
               >
                 {savingCartao ? (
