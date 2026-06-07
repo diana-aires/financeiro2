@@ -1,214 +1,288 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { C, styles } from '../../styles/theme';
-import { fmt } from '../../utils/formatters';
+import { fmt, formatDate } from '../../utils/formatters';
 import { Bar } from '../Common/Bar';
 import { ImportFaturaModal } from './ImportFaturaModal';
 import sb from '../../services/supabase';
+import { MESES_PT } from '../../hooks/usePeriodo';
 
-export function CartaoScreen({ lancamentos, token, session, cartoes, setCartoes, toast, onLancamentosUpdate }) {
+/**
+ * CartaoScreen
+ *
+ * Lógica de meses:
+ *  - Agrupa TODOS os parcelamentos por mês de vencimento (data_vencimento)
+ *  - Exibe pills com o nome do mês; o mês do período global vem selecionado por padrão
+ *  - Clicar num mês expande/recolhe o painel de parcelas daquele mês
+ *  - Dentro de cada mês, agrupa por cartão
+ */
+export function CartaoScreen({ lancamentos, periodoProps, token, session, cartoes, setCartoes, toast, onLancamentosUpdate }) {
   const [showImportModal, setShowImportModal] = useState(false);
-  
-  const parceladosAtivos = lancamentos.filter(l => 
-    l.parcelas && 
-    l.parcelas > 0 && 
-    l.parcela_atual && 
-    l.parcela_atual <= l.parcelas
-  );
-  
-  const porCartao = parceladosAtivos.reduce((acc, l) => {
-    const cartao = l.cartao || "Sem cartão";
-    if (!acc[cartao]) acc[cartao] = [];
-    acc[cartao].push(l);
-    return acc;
-  }, {});
-  
-  const totalMensal = parceladosAtivos.reduce((s, l) => s + Number(l.valor), 0);
-  
-  const marcarParcelaPaga = async (l, pa, pt) => {
+  // Mês expandido — default: mês do período global
+  const [mesAberto, setMesAberto] = useState(periodoProps?.mesAno || null);
+
+  // Todos os lançamentos parcelados (independente de mês)
+  const todosParcelados = useMemo(() =>
+    lancamentos.filter(l => l.parcelas && l.parcelas > 0),
+  [lancamentos]);
+
+  // Meses que têm pelo menos 1 parcela, ordenados desc por data_vencimento
+  const mesesComParcela = useMemo(() => {
+    const mesSet = new Set(
+      todosParcelados
+        .map(l => (l.data_vencimento || l.data_compra || "").slice(0, 7))
+        .filter(Boolean)
+    );
+    return [...mesSet].sort().reverse().map(v => {
+      const [ano, mes] = v.split('-');
+      return { valor: v, label: `${MESES_PT[parseInt(mes) - 1]}/${ano}` };
+    });
+  }, [todosParcelados]);
+
+  // Parcelas do mês selecionado
+  const parcelasMesAberto = useMemo(() => {
+    if (!mesAberto) return [];
+    return todosParcelados.filter(l =>
+      (l.data_vencimento || l.data_compra || "").startsWith(mesAberto)
+    );
+  }, [todosParcelados, mesAberto]);
+
+  // Agrupa parcelas do mês por cartão
+  const porCartao = useMemo(() => {
+    return parcelasMesAberto.reduce((acc, l) => {
+      const c = l.cartao || "Sem cartão";
+      if (!acc[c]) acc[c] = [];
+      acc[c].push(l);
+      return acc;
+    }, {});
+  }, [parcelasMesAberto]);
+
+  const totalMesAberto = parcelasMesAberto.reduce((s, l) => s + Number(l.valor), 0);
+
+  const marcarPaga = async (l) => {
+    const pa = l.parcela_atual || 1;
+    const pt = l.parcelas;
+    if (pa >= pt) { toast("Parcela já concluída!"); return; }
     try {
-      await sb("/lancamentos?id=eq." + l.id, {
-        method: "PATCH",
-        token,
-        body: { parcela_atual: pa + 1 }
-      });
+      await sb("/lancamentos?id=eq." + l.id, { method: "PATCH", token, body: { parcela_atual: pa + 1 } });
       onLancamentosUpdate();
-      toast(`✅ Parcela ${pa}/${pt} paga!`);
-    } catch (err) {
-      toast("❌ Erro ao atualizar parcela");
-    }
+      toast(`✅ Parcela ${pa}/${pt} marcada como paga!`);
+    } catch { toast("❌ Erro ao atualizar"); }
   };
-  
-  const removerParcelamento = (id) => {
-    if (window.confirm(`Remover este parcelamento?`)) {
-      sb("/lancamentos?id=eq." + id, { method: "DELETE", token }).then(() => {
-        onLancamentosUpdate();
-        toast("Removido.");
-      }).catch(() => toast("Erro ao remover"));
-    }
+
+  const remover = (id) => {
+    if (!window.confirm("Remover este parcelamento?")) return;
+    sb("/lancamentos?id=eq." + id, { method: "DELETE", token })
+      .then(() => { onLancamentosUpdate(); toast("Removido."); })
+      .catch(() => toast("Erro ao remover"));
   };
-  
+
+  function toggleMes(valor) {
+    setMesAberto(prev => prev === valor ? null : valor);
+  }
+
   return (
     <div style={{ animation: "fadeUp .4s ease" }}>
-      <div style={{ ...styles.card, marginBottom: 14 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+      {/* Header */}
+      <div style={{ ...styles.card, marginBottom: 16 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
           <div>
-            <div style={{ fontWeight: 600, fontSize: 14, color: C.navy }}>Parcelas no cartão</div>
-            <div style={{ fontSize: 12, color: C.grayD }}>Acompanhamento de compras parceladas</div>
+            <div style={{ fontWeight: 600, fontSize: 14, color: C.navy }}>Controle de Parcelamentos</div>
+            <div style={{ fontSize: 12, color: C.grayD }}>
+              {todosParcelados.length} parcela(s) ativas em {mesesComParcela.length} mês(es)
+            </div>
           </div>
-          <div style={{ display: "flex", gap: 8 }}>
-            <button 
-              onClick={() => setShowImportModal(true)}
-              style={{ ...styles.buttonPrimary, gap: 6, background: C.purple }}
-            >
-              <i className="ti ti-file-import" style={{ fontSize: 14 }} />
-              Importar Fatura PDF
-            </button>
-            <button 
-              onClick={() => {
-                let novoCartao = prompt("Digite o nome do novo cartão:", "");
-                if (novoCartao && novoCartao.trim()) {
-                  novoCartao = novoCartao.trim();
-                  if (!cartoes.includes(novoCartao)) {
-                    setCartoes([...cartoes, novoCartao]);
-                    toast(`✅ Cartão "${novoCartao}" adicionado!`);
-                  } else {
-                    toast(`⚠️ Cartão "${novoCartao}" já existe!`);
-                  }
-                }
-              }}
-              style={{ ...styles.buttonSuccess, gap: 6 }}
-            >
-              <i className="ti ti-plus" style={{ fontSize: 14 }} />
-              Novo Cartão
-            </button>
-          </div>
+          <button
+            onClick={() => setShowImportModal(true)}
+            style={{ ...styles.buttonPrimary, background: C.purple, gap: 6 }}
+          >
+            <i className="ti ti-file-import" style={{ fontSize: 14 }} />
+            Importar Fatura PDF
+          </button>
         </div>
       </div>
 
-      {parceladosAtivos.length === 0 ? (
-        <div style={{ ...styles.card, textAlign: "center", padding: "2rem", color: C.grayD }}>
-          <i className="ti ti-credit-card" style={{ fontSize: 48, display: "block", marginBottom: 12, opacity: 0.5 }} />
-          <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 8 }}>Nenhuma parcela ativa</div>
-          <div style={{ fontSize: 12 }}>Adicione compras parceladas nos lançamentos para ver o acompanhamento aqui.</div>
+      {todosParcelados.length === 0 ? (
+        <div style={{ ...styles.card, textAlign: "center", padding: "3rem", color: C.grayD }}>
+          <i className="ti ti-credit-card" style={{ fontSize: 48, display: "block", marginBottom: 12, opacity: 0.4 }} />
+          <div style={{ fontSize: 14, fontWeight: 500 }}>Nenhuma parcela cadastrada</div>
+          <div style={{ fontSize: 12, marginTop: 6 }}>Adicione compras parceladas em Lançamentos</div>
         </div>
       ) : (
         <>
-          <div style={{ ...styles.card, marginBottom: 16, background: "linear-gradient(135deg, " + C.navy + "08, " + C.purple + "08)" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 16 }}>
-              <div>
-                <div style={{ fontSize: 12, color: C.grayD, marginBottom: 4 }}>Total por mês</div>
-                <div style={{ fontSize: 24, fontWeight: 700, color: C.navy }}>{fmt(totalMensal)}</div>
-              </div>
-              <div>
-                <div style={{ fontSize: 12, color: C.grayD, marginBottom: 4 }}>Parcelas ativas</div>
-                <div style={{ fontSize: 24, fontWeight: 700, color: C.purple }}>{parceladosAtivos.length}</div>
-              </div>
+          {/* Pills de meses */}
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: C.grayD, marginBottom: 8, textTransform: "uppercase", letterSpacing: 1 }}>
+              Meses com parcelas
+            </div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {mesesComParcela.map(m => {
+                const ativo = mesAberto === m.valor;
+                const qtd = todosParcelados.filter(l =>
+                  (l.data_vencimento || l.data_compra || "").startsWith(m.valor)
+                ).length;
+                return (
+                  <button
+                    key={m.valor}
+                    onClick={() => toggleMes(m.valor)}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 6,
+                      padding: "7px 14px",
+                      borderRadius: 20,
+                      border: "1.5px solid " + (ativo ? C.navy : C.border),
+                      background: ativo ? C.navy : "#fff",
+                      color: ativo ? "#fff" : C.navy,
+                      fontSize: 12,
+                      fontWeight: ativo ? 700 : 500,
+                      cursor: "pointer",
+                      transition: "all .15s",
+                    }}
+                  >
+                    <i className="ti ti-calendar" style={{ fontSize: 12 }} />
+                    {m.label}
+                    <span style={{
+                      background: ativo ? "rgba(255,255,255,.25)" : C.navy + "18",
+                      borderRadius: 99,
+                      padding: "1px 7px",
+                      fontSize: 10,
+                      fontWeight: 700,
+                    }}>{qtd}</span>
+                    <i className={"ti " + (ativo ? "ti-chevron-up" : "ti-chevron-down")} style={{ fontSize: 11, marginLeft: 2 }} />
+                  </button>
+                );
+              })}
             </div>
           </div>
-          
-          {Object.entries(porCartao).map(([cartao, items]) => (
-            <div key={cartao} style={{ ...styles.card, marginBottom: 16 }}>
-              <div style={{ 
-                display: "flex", 
-                justifyContent: "space-between", 
-                alignItems: "center", 
-                marginBottom: 16,
-                paddingBottom: 12,
-                borderBottom: "2px solid " + C.border
-              }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <div style={{ width: 40, height: 40, borderRadius: 10, background: C.navy + "12", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                    <i className="ti ti-credit-card" style={{ fontSize: 20, color: C.navy }} />
+
+          {/* Painel do mês selecionado */}
+          {mesAberto && (
+            <div style={{ animation: "fadeUp .3s ease" }}>
+              {/* Resumo do mês */}
+              <div style={{ ...styles.card, marginBottom: 12, background: `linear-gradient(135deg, ${C.navy}08, ${C.purple}08)` }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <i className="ti ti-calendar-month" style={{ fontSize: 18, color: C.navy }} />
+                    <div>
+                      <div style={{ fontWeight: 700, fontSize: 15, color: C.navy }}>
+                        {mesesComParcela.find(m => m.valor === mesAberto)?.label}
+                      </div>
+                      <div style={{ fontSize: 11, color: C.grayD }}>{parcelasMesAberto.length} parcela(s) neste mês</div>
+                    </div>
                   </div>
-                  <div>
-                    <div style={{ fontWeight: 700, fontSize: 16, color: C.navy }}>{cartao}</div>
-                    <div style={{ fontSize: 11, color: C.grayD }}>{items.length} parcela(s)</div>
+                  <div style={{ textAlign: "right" }}>
+                    <div style={{ fontSize: 11, color: C.grayD }}>Total do mês</div>
+                    <div style={{ fontSize: 22, fontWeight: 700, color: C.red }}>{fmt(totalMesAberto)}</div>
                   </div>
                 </div>
-                <div style={{ fontSize: 18, fontWeight: 700, color: C.navy }}>
-                  {fmt(items.reduce((s, l) => s + Number(l.valor), 0))}
-                  <span style={{ fontSize: 11, fontWeight: 400, color: C.grayD, marginLeft: 4 }}>/mês</span>
-                </div>
               </div>
-              
-              <div style={{ overflowX: "auto" }}>
-                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-                  <thead>
-                    <tr style={{ borderBottom: "2px solid " + C.border, background: C.slate }}>
-                      <th style={{ textAlign: "left", padding: "10px", fontWeight: 600, color: C.grayD }}>Descrição</th>
-                      <th style={{ textAlign: "center", padding: "10px", fontWeight: 600, color: C.grayD }}>Parcela</th>
-                      <th style={{ textAlign: "left", padding: "10px", fontWeight: 600, color: C.grayD }}>Progresso</th>
-                      <th style={{ textAlign: "right", padding: "10px", fontWeight: 600, color: C.grayD }}>Valor</th>
-                      <th style={{ textAlign: "right", padding: "10px", fontWeight: 600, color: C.grayD }}>Restante</th>
-                      <th style={{ textAlign: "center", padding: "10px", fontWeight: 600, color: C.grayD }}>Ações</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {items.map((l, idx) => {
-                      const pa = l.parcela_atual || 1;
-                      const pt = l.parcelas || 1;
-                      const pct = (pa / pt) * 100;
-                      const rest = (pt - pa) * Number(l.valor);
-                      const concluida = pa >= pt;
-                      
-                      return (
-                        <tr key={l.id} style={{ 
-                          borderBottom: idx === items.length - 1 ? "none" : "1px solid " + C.border,
-                          opacity: concluida ? 0.6 : 1,
-                          background: concluida ? C.green + "08" : "transparent"
-                        }}>
-                          <td style={{ padding: "12px 10px", fontWeight: 500 }}>
-                            {l.descricao}
-                            {concluida && (
-                              <span style={{ marginLeft: 8, fontSize: 10, padding: "2px 6px", borderRadius: 99, background: C.green + "20", color: C.green }}>
-                                Concluída
-                              </span>
-                            )}
-                          </td>
-                          <td style={{ padding: "12px 10px", textAlign: "center", fontWeight: 600, color: C.navy }}>{pa}/{pt}</td>
-                          <td style={{ padding: "12px 10px", minWidth: 150 }}>
-                            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                              <div style={{ flex: 1 }}><Bar pct={pct} color={concluida ? C.green : C.purple} /></div>
-                              <span style={{ fontSize: 11, fontWeight: 500, minWidth: 45, color: concluida ? C.green : C.purple }}>{Math.round(pct)}%</span>
-                            </div>
-                          </td>
-                          <td style={{ padding: "12px 10px", textAlign: "right", fontWeight: 600, color: C.red }}>{fmt(l.valor)}</td>
-                          <td style={{ padding: "12px 10px", textAlign: "right", color: concluida ? C.green : C.grayD }}>
-                            {concluida ? "✓ Pago" : `${fmt(rest)} (${pt - pa}x)`}
-                          </td>
-                          <td style={{ padding: "12px 10px", textAlign: "center", whiteSpace: "nowrap" }}>
-                            {!concluida && (
-                              <button onClick={() => marcarParcelaPaga(l, pa, pt)} style={styles.buttonIcon} title="Marcar como paga">
-                                <i className="ti ti-check" style={{ fontSize: 16, color: C.green }} />
-                              </button>
-                            )}
-                            <button onClick={() => removerParcelamento(l.id)} style={styles.buttonIcon} title="Remover">
-                              <i className="ti ti-trash" style={{ fontSize: 16, color: C.red }} />
-                            </button>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
+
+              {/* Grupos por cartão */}
+              {Object.entries(porCartao).map(([cartao, items]) => (
+                <CartaoGrupo
+                  key={cartao}
+                  cartao={cartao}
+                  items={items}
+                  onMarcarPaga={marcarPaga}
+                  onRemover={remover}
+                />
+              ))}
             </div>
-          ))}
+          )}
         </>
       )}
-      
+
       {showImportModal && (
-        <ImportFaturaModal 
+        <ImportFaturaModal
           isOpen={showImportModal}
           onClose={() => setShowImportModal(false)}
-          onImport={() => {
-            onLancamentosUpdate();
-            toast("📥 Lançamentos importados com sucesso!");
-          }}
+          onImport={() => { onLancamentosUpdate(); toast("📥 Lançamentos importados!"); }}
           token={token}
           uid={session?.user?.id}
         />
       )}
+    </div>
+  );
+}
+
+/* ─── Grupo de parcelas por cartão ─── */
+function CartaoGrupo({ cartao, items, onMarcarPaga, onRemover }) {
+  const totalCartao = items.reduce((s, l) => s + Number(l.valor), 0);
+
+  return (
+    <div style={{ ...styles.card, marginBottom: 14 }}>
+      {/* Header cartão */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, paddingBottom: 12, borderBottom: "2px solid " + C.border }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <div style={{ width: 38, height: 38, borderRadius: 10, background: C.navy + "12", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <i className="ti ti-credit-card" style={{ fontSize: 18, color: C.navy }} />
+          </div>
+          <div>
+            <div style={{ fontWeight: 700, fontSize: 14, color: C.navy }}>{cartao}</div>
+            <div style={{ fontSize: 11, color: C.grayD }}>{items.length} parcela(s)</div>
+          </div>
+        </div>
+        <div>
+          <div style={{ fontSize: 11, color: C.grayD, textAlign: "right" }}>Total/mês</div>
+          <div style={{ fontSize: 17, fontWeight: 700, color: C.navy }}>{fmt(totalCartao)}</div>
+        </div>
+      </div>
+
+      <div style={{ overflowX: "auto" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+          <thead>
+            <tr style={{ borderBottom: "2px solid " + C.border, background: C.slate }}>
+              {["Descrição","Vencimento","Parcela","Progresso","Valor/mês","Restante","Ações"].map(h => (
+                <th key={h} style={{ padding: "8px 10px", textAlign: h === "Valor/mês" || h === "Restante" ? "right" : h === "Ações" ? "center" : "left", fontWeight: 600, color: C.grayD }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {items.map((l, idx) => {
+              const pa = l.parcela_atual || 1;
+              const pt = l.parcelas || 1;
+              const pct = (pa / pt) * 100;
+              const rest = Math.max(0, (pt - pa)) * Number(l.valor);
+              const concluida = pa >= pt;
+
+              return (
+                <tr key={l.id} style={{
+                  borderBottom: idx < items.length - 1 ? "1px solid " + C.border : "none",
+                  opacity: concluida ? 0.65 : 1,
+                  background: concluida ? C.green + "08" : "transparent"
+                }}>
+                  <td style={{ padding: "10px", fontWeight: 500 }}>
+                    {l.descricao}
+                    {concluida && <span style={{ marginLeft: 6, fontSize: 10, padding: "1px 6px", borderRadius: 99, background: C.green + "20", color: C.green }}>Concluída</span>}
+                  </td>
+                  <td style={{ padding: "10px", color: C.grayD, whiteSpace: "nowrap" }}>{formatDate(l.data_vencimento)}</td>
+                  <td style={{ padding: "10px", fontWeight: 600, color: C.navy, whiteSpace: "nowrap" }}>{pa}/{pt}</td>
+                  <td style={{ padding: "10px", minWidth: 140 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <div style={{ flex: 1 }}><Bar pct={pct} color={concluida ? C.green : C.purple} /></div>
+                      <span style={{ fontSize: 11, fontWeight: 600, minWidth: 38, color: concluida ? C.green : C.purple }}>{Math.round(pct)}%</span>
+                    </div>
+                  </td>
+                  <td style={{ padding: "10px", fontWeight: 600, color: C.red, textAlign: "right", whiteSpace: "nowrap" }}>{fmt(l.valor)}</td>
+                  <td style={{ padding: "10px", textAlign: "right", color: concluida ? C.green : C.grayD, whiteSpace: "nowrap" }}>
+                    {concluida ? "✓ Pago" : `${fmt(rest)} (${pt - pa}x)`}
+                  </td>
+                  <td style={{ padding: "10px", textAlign: "center", whiteSpace: "nowrap" }}>
+                    {!concluida && (
+                      <button onClick={() => onMarcarPaga(l)} style={styles.buttonIcon} title="Marcar parcela como paga">
+                        <i className="ti ti-check" style={{ fontSize: 15, color: C.green }} />
+                      </button>
+                    )}
+                    <button onClick={() => onRemover(l.id)} style={styles.buttonIcon} title="Remover">
+                      <i className="ti ti-trash" style={{ fontSize: 15, color: C.red }} />
+                    </button>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
