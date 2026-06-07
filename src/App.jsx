@@ -1105,8 +1105,9 @@ function Dashboard({ session, onLogout }) {
         )}
 
         {/* ========== CARTÃO - PARCELAS POR MÊS ========== */}
-       {aba === "cartao" && (
+     {aba === "cartao" && (
   <div style={{ animation: "fadeUp .4s ease" }}>
+    {/* Cabeçalho com botão para novo cartão */}
     <div style={{ ...crd, marginBottom: 14 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
         <div>
@@ -1143,6 +1144,7 @@ function Dashboard({ session, onLogout }) {
       </div>
     </div>
 
+    {/* Lista de parcelas por mês */}
     {Object.keys(parcelasPorMes).length === 0 ? (
       <div style={{ ...crd, textAlign: "center", padding: "3rem", color: C.grayD, fontSize: 13 }}>
         <i className="ti ti-credit-card-off" style={{ fontSize: 48, display: "block", marginBottom: 16, opacity: 0.5 }} />
@@ -1156,8 +1158,10 @@ function Dashboard({ session, onLogout }) {
         const parcelasDoMes = parcelasPorMes[mes];
         const totalMes = parcelasDoMes.reduce((s, l) => s + Number(l.valor), 0);
         const nomeMes = new Date(mes + "-01").toLocaleDateString("pt-BR", { month: "long", year: "numeric" });
+        
         return (
           <div key={mes} style={{ ...crd, marginBottom: 16 }}>
+            {/* Cabeçalho do mês */}
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, paddingBottom: 12, borderBottom: "2px solid " + C.border }}>
               <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
                 <div style={{ width: 40, height: 40, borderRadius: 12, background: C.navy + "15", display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -1174,6 +1178,8 @@ function Dashboard({ session, onLogout }) {
                 {fmt(totalMes)}
               </div>
             </div>
+
+            {/* Tabela de parcelas do mês */}
             <div style={{ overflowX: "auto" }}>
               <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
                 <thead>
@@ -1191,7 +1197,9 @@ function Dashboard({ session, onLogout }) {
                     const progresso = (l.parcela_atual / l.parcelas) * 100;
                     return (
                       <tr key={l.id} style={{ borderBottom: "1px solid " + C.border }} className="row-hover">
-                        <td style={{ padding: "10px 8px", color: C.grayD, whiteSpace: "nowrap" }}>{l.data_compra?.split("-").reverse().join("/")}</td>
+                        <td style={{ padding: "10px 8px", color: C.grayD, whiteSpace: "nowrap" }}>
+                          {l.data_compra?.split("-").reverse().join("/")}
+                        </td>
                         <td style={{ padding: "10px 8px", fontWeight: 500 }}>{l.descricao}</td>
                         <td style={{ padding: "10px 8px" }}>
                           <span style={{ fontSize: 10, padding: "4px 10px", borderRadius: 20, background: "#FEF2F2", color: C.red, whiteSpace: "nowrap" }}>
@@ -1201,7 +1209,9 @@ function Dashboard({ session, onLogout }) {
                         <td style={{ padding: "10px 8px", textAlign: "center" }}>
                           <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
                             <span style={{ fontWeight: 600, fontSize: 13, color: C.navy }}>{l.parcela_atual}/{l.parcelas}</span>
-                            <div style={{ width: "60px" }}><Bar pct={progresso} color={progresso >= 100 ? C.green : C.purple} /></div>
+                            <div style={{ width: "60px" }}>
+                              <Bar pct={progresso} color={progresso >= 100 ? C.green : C.purple} />
+                            </div>
                           </div>
                         </td>
                         <td style={{ padding: "10px 8px" }}>
@@ -1210,7 +1220,9 @@ function Dashboard({ session, onLogout }) {
                             {l.cartao || "Sem cartão"}
                           </span>
                         </td>
-                        <td style={{ padding: "10px 8px", textAlign: "right", fontWeight: 700, color: C.red, whiteSpace: "nowrap" }}>{fmt(l.valor)}</td>
+                        <td style={{ padding: "10px 8px", textAlign: "right", fontWeight: 700, color: C.red, whiteSpace: "nowrap" }}>
+                          {fmt(l.valor)}
+                        </td>
                       </tr>
                     );
                   })}
@@ -1218,7 +1230,9 @@ function Dashboard({ session, onLogout }) {
                 <tfoot>
                   <tr style={{ borderTop: "2px solid " + C.border, background: C.slate }}>
                     <td colSpan={5} style={{ padding: "10px 8px", fontWeight: 600 }}>Total do mês</td>
-                    <td style={{ padding: "10px 8px", textAlign: "right", fontWeight: 700, fontSize: 14, color: C.red }}>{fmt(totalMes)}</td>
+                    <td style={{ padding: "10px 8px", textAlign: "right", fontWeight: 700, fontSize: 14, color: C.red }}>
+                      {fmt(totalMes)}
+                    </td>
                   </tr>
                 </tfoot>
               </table>
