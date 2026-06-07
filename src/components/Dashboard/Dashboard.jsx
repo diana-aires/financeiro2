@@ -3,17 +3,39 @@ import { C, styles } from '../../styles/theme';
 import { Header } from '../Common/Header';
 import { Loading } from '../Common/Loading';
 import { Toast } from '../Common/Toast';
-import { sb } from '../../services/supabase';
-import { fmt, today } from '../../utils/formatters';
-import { CATS_R, CATS_D, TIPO_R, TIPO_D, METAS_DEF, CARTOES, BLANK_LANCAMENTO, ABAS } from '../../utils/constants';
+import sb from '../../services/supabase';
+import { fmt } from '../../utils/formatters';
+import { CATS_R, CATS_D, METAS_DEF, CARTOES } from '../../utils/constants';
 import { LancamentosScreen } from '../Lancamentos/LancamentosScreen';
 import { CartaoScreen } from '../Cartao/CartaoScreen';
 import { MetasScreen } from '../Metas/MetasScreen';
 import { GerenciarCategorias } from '../Categorias/GerenciarCategorias';
 import { IAScreen } from '../IA/IAScreen';
-import { DashboardCards } from './DashboardCards';
-import { DashboardIndicadores } from './DashboardIndicadores';
-import { DashboardMetas } from './DashboardMetas';
+
+// Componente Bar separado para evitar erro de referência
+function Bar({ pct, color }) {
+  return (
+    <div style={{ background: C.border, borderRadius: 999, height: 6, overflow: "hidden" }}>
+      <div style={{ 
+        width: Math.min(100, pct) + "%", 
+        height: "100%", 
+        background: color, 
+        borderRadius: 999, 
+        transition: "width .6s" 
+      }} />
+    </div>
+  );
+}
+
+// Componente DashboardCard
+function DashboardCard({ label, value, color }) {
+  return (
+    <div style={{ ...styles.card, borderTop: "3px solid " + color, padding: "1rem" }}>
+      <div style={{ fontSize: 10, fontWeight: 600, color: C.grayD, textTransform: "uppercase", marginBottom: 6 }}>{label}</div>
+      <div style={{ fontSize: 18, fontWeight: 700, color }}>{fmt(value)}</div>
+    </div>
+  );
+}
 
 export function Dashboard({ session, onLogout }) {
   const [aba, setAba] = useState("dashboard");
@@ -41,10 +63,14 @@ export function Dashboard({ session, onLogout }) {
       sb("/categorias?order=ordem.asc", { token }),
       sb("/lancamentos?order=data_vencimento.desc", { token }),
       sb("/metas?order=id.asc", { token }),
-    ]).then(([cats, lancs, metasData]) => {
+      sb("/cartoes?select=nome&user_id=eq." + uid + "&ativo=eq.true", { token })
+    ]).then(([cats, lancs, metasData, cartoesData]) => {
       if (Array.isArray(cats)) setCategorias(cats);
       if (Array.isArray(lancs)) setLanc(lancs);
       if (Array.isArray(metasData)) setMetas(metasData);
+      if (Array.isArray(cartoesData) && cartoesData.length > 0) {
+        setCartoes(cartoesData.map(c => c.nome));
+      }
       
       if (!metasData || metasData.length === 0) {
         METAS_DEF.forEach((m) => {
@@ -80,6 +106,11 @@ export function Dashboard({ session, onLogout }) {
     if (Array.isArray(updated)) setLanc(updated);
   };
 
+  const recarregarMetas = async () => {
+    const updated = await sb("/metas?order=id.asc", { token });
+    if (Array.isArray(updated)) setMetas(updated);
+  };
+
   if (loading) return <Loading />;
 
   return (
@@ -89,27 +120,26 @@ export function Dashboard({ session, onLogout }) {
       <div style={{ maxWidth: 1100, margin: "0 auto", padding: "1.25rem" }}>
         
         {aba === "dashboard" && (
-          <>
-            <DashboardCards tR={tR} tD={tD} saldo={saldo} inv={inv} fin={fin} />
-            <DashboardIndicadores tR={tR} rec={rec} desp={desp} />
-            <DashboardMetas metas={safeMetas} setAba={setAba} />
-          </>
+          <DashboardContent 
+            tR={tR} tD={tD} saldo={saldo} inv={inv} fin={fin}
+            rec={rec} desp={desp} metas={safeMetas} setAba={setAba}
+          />
         )}
 
-    {aba === "lancamentos" && (
-  <LancamentosScreen 
-    lancamentos={safeLanc}
-    categorias={categorias}
-    catsRList={catsRList}
-    catsDList={catsDList}
-    token={token}      // <-- JÁ DEVE TER
-    uid={uid}          // <-- JÁ DEVE TER
-    cartoes={cartoes}
-    setCartoes={setCartoes}
-    toast={toast}
-    onLancamentosUpdate={recarregarLancamentos}
-  />
-)}
+        {aba === "lancamentos" && (
+          <LancamentosScreen 
+            lancamentos={safeLanc}
+            categorias={categorias}
+            catsRList={catsRList}
+            catsDList={catsDList}
+            token={token}
+            uid={uid}
+            cartoes={cartoes}
+            setCartoes={setCartoes}
+            toast={toast}
+            onLancamentosUpdate={recarregarLancamentos}
+          />
+        )}
 
         {aba === "cartao" && (
           <CartaoScreen 
@@ -129,10 +159,7 @@ export function Dashboard({ session, onLogout }) {
             token={token}
             uid={uid}
             toast={toast}
-            onMetasUpdate={() => {
-              sb("/metas?order=id.asc", { token })
-                .then(data => Array.isArray(data) && setMetas(data));
-            }}
+            onMetasUpdate={recarregarMetas}
           />
         )}
 
@@ -157,4 +184,91 @@ export function Dashboard({ session, onLogout }) {
       </div>
     </div>
   );
+}
+
+// Componente auxiliar para o dashboard
+function DashboardContent({ tR, tD, saldo, inv, fin, rec, desp, metas, setAba }) {
+  const rF = rec.filter((l) => l?.cat === "Salário CLT").reduce((s, l) => s + Number(l?.valor || 0), 0);
+  const rV = rec.filter((l) => l?.cat !== "Salário CLT").reduce((s, l) => s + Number(l?.valor || 0), 0);
+  const dF = desp.filter((l) => ["Aluguel", "Energia", "Internet", "Telefone", "Assinaturas"].includes(l?.cat)).reduce((s, l) => s + Number(l?.valor || 0), 0);
+  
+  const txP = tR > 0 ? saldo / tR : 0;
+  const dC = tR > 0 ? rF / tR : 0;
+  const cFx = tR > 0 ? dF / tR : 0;
+
+  const coresMap = { navy: C.navy, green: C.green, purple: C.purple, amber: C.amber, teal: C.teal, orange: C.orange, red: C.red };
+
+  return (
+    <div style={{ animation: "fadeUp .4s ease" }}>
+      {/* Cards */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(140px,1fr))", gap: 10, marginBottom: 14 }}>
+        <DashboardCard label="Receita" value={tR} color={C.green} />
+        <DashboardCard label="Despesas" value={tD} color={C.red} />
+        <DashboardCard label="Saldo" value={saldo} color={saldo >= 0 ? C.navy : C.red} />
+        <DashboardCard label="Investido" value={inv} color={C.purple} />
+        <DashboardCard label="Financiamento" value={fin} color={C.amber} />
+      </div>
+      
+      {/* Indicadores */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(260px,1fr))", gap: 10, marginBottom: 14 }}>
+        <div style={styles.card}>
+          <div style={{ fontWeight: 600, fontSize: 13, color: C.navy, marginBottom: 12 }}>Receita</div>
+          {[["Fixa (CLT)", rF, C.navy], ["Variável", rV, C.green]].map(([label, value, color]) => (
+            <div key={label} style={{ marginBottom: 10 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 4 }}>
+                <span style={{ color: C.grayD }}>{label}</span>
+                <span style={{ fontWeight: 600, color }}>{tR > 0 ? ((value / tR) * 100).toFixed(1) : 0}%</span>
+              </div>
+              <Bar pct={tR > 0 ? (value / tR) * 100 : 0} color={color} />
+            </div>
+          ))}
+        </div>
+        
+        <div style={styles.card}>
+          <div style={{ fontWeight: 600, fontSize: 13, color: C.navy, marginBottom: 12 }}>Indicadores</div>
+          {[
+            { label: "Poupança", value: txP, ok: txP >= 0.2, formatter: (v) => (v * 100).toFixed(1) + "%" },
+            { label: "CLT", value: dC, ok: dC <= 0.7, formatter: (v) => (v * 100).toFixed(1) + "%" },
+            { label: "Fixas", value: cFx, ok: cFx <= 0.5, formatter: (v) => (v * 100).toFixed(1) + "%" }
+          ].map((k) => (
+            <div key={k.label} style={{ display: "flex", alignItems: "center", padding: "5px 0", borderBottom: "1px solid " + C.border }}>
+              <span style={{ flex: 1, fontSize: 12, color: C.grayD }}>{k.label}</span>
+              <span style={{ fontSize: 12, fontWeight: 600, color: k.ok ? C.green : C.amber }}>{k.formatter(k.value)}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+      
+      {/* Metas */}
+      <div style={styles.card}>
+        <div style={{ fontWeight: 600, fontSize: 13, color: C.navy, marginBottom: 12 }}>Metas</div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))", gap: 10 }}>
+          {metas.slice(0, 3).map((m) => {
+            const p = Math.min(100, (m.atual / m.valor) * 100);
+            const corMeta = coresMap[m.cor] || C.navy;
+            return (
+              <div key={m.id} style={{ background: C.slate, borderRadius: 10, padding: 10, border: "1px solid " + C.border }}>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
+                  <span style={{ fontSize: 11, fontWeight: 600, color: corMeta }}>{m.nome}</span>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: p >= 100 ? C.green : corMeta }}>{Math.round(p)}%</span>
+                </div>
+                <Bar pct={p} color={p >= 100 ? C.green : corMeta} />
+                <div style={{ fontSize: 10, color: C.grayD, marginTop: 4 }}>{fmt(m.atual)} / {fmt(m.valor)}</div>
+              </div>
+            );
+          })}
+          {metas.length > 3 && (
+            <div style={{ background: C.slate, borderRadius: 10, padding: 10, border: "1px solid " + C.border, display: "flex", alignItems: "center", justifyContent: "center", minHeight: 80 }}>
+              <button onClick={() => setAba("metas")} style={{ fontSize: 11, color: C.navy, background: "none", border: "none", cursor: "pointer", fontWeight: 500 }}>
+                + {metas.length - 3} outras metas
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default Dashboard;
 }
