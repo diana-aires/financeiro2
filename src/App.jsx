@@ -1105,14 +1105,15 @@ function Dashboard({ session, onLogout }) {
   </div>
 )}
         {/* ========== CARTÃO - PARCELAS POR MÊS ========== */}
-       {aba === "cartao" && (
+      {/* ========== CARTÃO - APENAS PARCELAS ATIVAS (SEM FUTURO) ========== */}
+{aba === "cartao" && (
   <div style={{ animation: "fadeUp .4s ease" }}>
     <div style={{ ...crd, marginBottom: 14 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
         <div>
           <div style={{ fontWeight: 600, fontSize: 14, color: C.navy }}>Parcelas no cartão</div>
           <div style={{ fontSize: 12, color: C.grayD }}>
-            {parcelados.length} parcela(s) · Mensal: {fmt(parcelados.reduce((s, l) => s + Number(l.valor), 0))}
+            Apenas parcelas com pagamento em andamento
           </div>
         </div>
         <button 
@@ -1136,63 +1137,147 @@ function Dashboard({ session, onLogout }) {
       </div>
     </div>
 
-    {parcelados.length === 0 ? (
-      <div style={{ ...crd, textAlign: "center", padding: "2rem", color: C.grayD, fontSize: 13 }}>
-        <i className="ti ti-credit-card" style={{ fontSize: 32, display: "block", marginBottom: 12, opacity: 0.5 }} />
-        Nenhuma parcela encontrada.
-        <div style={{ fontSize: 11, marginTop: 8, color: C.gray }}>
-          Adicione compras parceladas nos lançamentos.
-        </div>
-      </div>
-    ) : (
-      Object.entries(porCartao).map(([cartao, items]) => (
-        <div key={cartao} style={{ ...crd, marginBottom: 12 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <i className="ti ti-credit-card" style={{ fontSize: 16, color: C.navy }} />
-              <div>
-                <div style={{ fontWeight: 600, fontSize: 13, color: C.navy }}>{cartao}</div>
-                <div style={{ fontSize: 11, color: C.grayD }}>{items.length} item(ns)</div>
+    {/* Filtra apenas lançamentos com parcelamento ativo (parcela_atual <= parcelas) */}
+    {(() => {
+      // CORREÇÃO: Declarar as variáveis aqui dentro
+      const parceladosAtivos = safeLanc.filter(l => 
+        l.parcelas && 
+        l.parcelas > 0 && 
+        l.parcela_atual && 
+        l.parcela_atual <= l.parcelas &&
+        l.parcela_atual < l.parcelas // Mostra apenas as que ainda têm parcelas a pagar
+      );
+      
+      const porCartao = parceladosAtivos.reduce((acc, l) => {
+        const cartao = l.cartao || "Sem cartão";
+        if (!acc[cartao]) acc[cartao] = [];
+        acc[cartao].push(l);
+        return acc;
+      }, {});
+      
+      const totalMensal = parceladosAtivos.reduce((s, l) => s + Number(l.valor), 0);
+      
+      return (
+        <>
+          {parceladosAtivos.length === 0 ? (
+            <div style={{ ...crd, textAlign: "center", padding: "2rem", color: C.grayD, fontSize: 13 }}>
+              <i className="ti ti-credit-card" style={{ fontSize: 32, display: "block", marginBottom: 12, opacity: 0.5 }} />
+              Nenhuma parcela ativa no momento.
+              <div style={{ fontSize: 11, marginTop: 8, color: C.gray }}>
+                Adicione compras parceladas nos lançamentos.
               </div>
             </div>
-            <div style={{ fontSize: 14, fontWeight: 700, color: C.navy }}>
-              {fmt(items.reduce((s, l) => s + Number(l.valor), 0))}/mês
-            </div>
-          </div>
-          <div style={{ overflowX: "auto" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
-              <thead>
-                <tr style={{ borderBottom: "2px solid " + C.border }}>
-                  {["Descrição", "Parcela", "Progresso", "Valor", "Restante"].map((h) => (
-                    <th key={h} style={{ textAlign: "left", padding: "8px", fontWeight: 600, color: C.grayD }}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {items.map((l) => {
-                  const pa = l.parcela_atual || 1;
-                  const pt = l.parcelas;
-                  const pct = (pa / pt) * 100;
-                  const rest = (pt - pa) * Number(l.valor);
-                  return (
-                    <tr key={l.id} style={{ borderBottom: "1px solid " + C.border }}>
-                      <td style={{ padding: 8, fontWeight: 500 }}>{l.descricao}</td>
-                      <td style={{ padding: 8, color: C.grayD }}>{pa}/{pt}</td>
-                      <td style={{ padding: 8, minWidth: 100 }}>
-                        <Bar pct={pct} color={pct >= 100 ? C.green : C.purple} />
-                        <span style={{ fontSize: 10, marginLeft: 8 }}>{Math.round(pct)}%</span>
-                      </td>
-                      <td style={{ padding: 8, color: C.red, whiteSpace: "nowrap" }}>{fmt(l.valor)}</td>
-                      <td style={{ padding: 8, color: C.grayD, whiteSpace: "nowrap" }}>{fmt(rest)}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      ))
-    )}
+          ) : (
+            <>
+              <div style={{ ...crd, marginBottom: 12, background: C.navy + "08" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+                  <div>
+                    <span style={{ fontSize: 12, color: C.grayD }}>Total comprometido por mês:</span>
+                    <span style={{ fontSize: 18, fontWeight: 700, color: C.navy, marginLeft: 8 }}>{fmt(totalMensal)}</span>
+                  </div>
+                  <div>
+                    <span style={{ fontSize: 12, color: C.grayD }}>Total de parcelas ativas:</span>
+                    <span style={{ fontSize: 14, fontWeight: 600, color: C.purple, marginLeft: 8 }}>{parceladosAtivos.length}</span>
+                  </div>
+                </div>
+              </div>
+              
+              {Object.entries(porCartao).map(([cartao, items]) => (
+                <div key={cartao} style={{ ...crd, marginBottom: 12 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <i className="ti ti-credit-card" style={{ fontSize: 16, color: C.navy }} />
+                      <div>
+                        <div style={{ fontWeight: 600, fontSize: 13, color: C.navy }}>{cartao}</div>
+                        <div style={{ fontSize: 11, color: C.grayD }}>{items.length} parcela(s) ativa(s)</div>
+                      </div>
+                    </div>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: C.navy }}>
+                      {fmt(items.reduce((s, l) => s + Number(l.valor), 0))}/mês
+                    </div>
+                  </div>
+                  <div style={{ overflowX: "auto" }}>
+                    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                      <thead>
+                        <tr style={{ borderBottom: "2px solid " + C.border }}>
+                          <th style={{ textAlign: "left", padding: "8px", fontWeight: 600, color: C.grayD }}>Descrição</th>
+                          <th style={{ textAlign: "left", padding: "8px", fontWeight: 600, color: C.grayD }}>Parcela</th>
+                          <th style={{ textAlign: "left", padding: "8px", fontWeight: 600, color: C.grayD }}>Progresso</th>
+                          <th style={{ textAlign: "left", padding: "8px", fontWeight: 600, color: C.grayD }}>Valor</th>
+                          <th style={{ textAlign: "left", padding: "8px", fontWeight: 600, color: C.grayD }}>Restante</th>
+                          <th style={{ textAlign: "center", padding: "8px", fontWeight: 600, color: C.grayD }}>Ações</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {items.map((l) => {
+                          const pa = l.parcela_atual || 1;
+                          const pt = l.parcelas;
+                          const pct = (pa / pt) * 100;
+                          const rest = (pt - pa) * Number(l.valor);
+                          const parcelasRestantes = pt - pa;
+                          
+                          return (
+                            <tr key={l.id} style={{ borderBottom: "1px solid " + C.border }}>
+                              <td style={{ padding: 8, fontWeight: 500 }}>{l.descricao}</td>
+                              <td style={{ padding: 8, color: C.grayD }}>{pa}/{pt}</td>
+                              <td style={{ padding: 8, minWidth: 100 }}>
+                                <Bar pct={pct} color={pct >= 100 ? C.green : C.purple} />
+                                <span style={{ fontSize: 10, marginLeft: 8 }}>{Math.round(pct)}%</span>
+                              </td>
+                              <td style={{ padding: 8, color: C.red, whiteSpace: "nowrap" }}>{fmt(l.valor)}</td>
+                              <td style={{ padding: 8, color: C.grayD, whiteSpace: "nowrap" }}>
+                                {fmt(rest)} ({parcelasRestantes} × {fmt(l.valor)})
+                              </td>
+                              <td style={{ padding: 8, whiteSpace: "nowrap", textAlign: "center" }}>
+                                <button 
+                                  onClick={() => {
+                                    if (window.confirm(`Marcar parcela ${pa}/${pt} como paga?`)) {
+                                      const novoValor = Number(l.valor);
+                                      updMeta(l.id, novoValor);
+                                      // Atualiza a parcela atual
+                                      const novasParcelas = { ...l, parcela_atual: pa + 1 };
+                                      sb("/lancamentos?id=eq." + l.id, { 
+                                        method: "PATCH", 
+                                        token, 
+                                        body: { parcela_atual: pa + 1 } 
+                                      }).then(() => {
+                                        setLanc(prev => prev.map(item => 
+                                          item.id === l.id ? { ...item, parcela_atual: pa + 1 } : item
+                                        ));
+                                        toast(`✅ Parcela ${pa}/${pt} paga!`);
+                                      }).catch(() => toast("Erro ao atualizar parcela"));
+                                    }
+                                  }}
+                                  style={btnI}
+                                  title="Marcar parcela como paga"
+                                >
+                                  <i className="ti ti-check" style={{ fontSize: 13, color: C.green }} />
+                                </button>
+                                <button 
+                                  onClick={() => {
+                                    if (window.confirm(`Deseja remover este parcelamento?`)) {
+                                      del(l.id);
+                                    }
+                                  }}
+                                  style={btnI}
+                                  title="Remover parcelamento"
+                                >
+                                  <i className="ti ti-trash" style={{ fontSize: 13, color: C.red }} />
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              ))}
+            </>
+          )}
+        </>
+      );
+    })()}
   </div>
 )}
 
