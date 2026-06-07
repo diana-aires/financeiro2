@@ -63,20 +63,46 @@ async function sb(path, opts = {}) {
     const url = SUPABASE_URL + "/rest/v1" + path;
     console.log(`📡 ${method} ${url}`, body ? { body } : '');
     
-    const r = await fetch(url, {
+    const response = await fetch(url, {
       method,
       headers,
       body: body ? JSON.stringify(body) : undefined,
     });
     
-    // Log do status da resposta
-    console.log(`📡 Resposta: ${r.status} ${r.statusText}`);
+    console.log(`📡 Resposta: ${response.status}`);
     
-    if (!r.ok) {
-      const errorText = await r.text();
-      console.error('❌ Erro na requisição:', r.status, errorText);
+    // Para respostas 201 (Created) ou 204 (No Content)
+    if (response.status === 201 || response.status === 204) {
+      // Tentar obter o corpo da resposta
+      const text = await response.text();
       
-      // Tentar parsear o erro
+      if (!text || text.trim() === '') {
+        console.log(`✅ ${method} realizado com sucesso (sem dados retornados)`);
+        // Para POST, tentar buscar o item recém-criado
+        if (method === "POST" && body) {
+          // Buscar pelo item mais recente do usuário
+          const userId = body.user_id;
+          if (userId) {
+            const latest = await sb(`/lancamentos?user_id=eq.${userId}&order=created_at.desc&limit=1`, { token });
+            return latest.length > 0 ? latest[0] : { success: true };
+          }
+        }
+        return { success: true };
+      }
+      
+      try {
+        const json = JSON.parse(text);
+        return json;
+      } catch(e) {
+        return { success: true };
+      }
+    }
+    
+    // Para outros status
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('❌ Erro na requisição:', response.status, errorText);
+      
       let errorJson;
       try {
         errorJson = JSON.parse(errorText);
@@ -84,29 +110,25 @@ async function sb(path, opts = {}) {
         errorJson = { message: errorText };
       }
       
-      throw new Error(errorJson.message || errorJson.error || `HTTP ${r.status}`);
+      throw new Error(errorJson.message || errorJson.error || `HTTP ${response.status}`);
     }
     
-    const txt = await r.text();
+    const text = await response.text();
     
-    if (!txt || txt.trim() === '' || txt === 'null' || txt === 'undefined') {
-      console.warn('📭 Resposta vazia da API:', path);
-      return [];
+    if (!text || text.trim() === '' || text === 'null') {
+      return method === "DELETE" ? { success: true } : [];
     }
     
-    let result;
     try {
-      result = JSON.parse(txt);
-    } catch (e) {
-      console.error('❌ Erro ao fazer parse do JSON:', e, 'Texto:', txt);
+      const json = JSON.parse(text);
+      return json;
+    } catch(e) {
+      console.error('❌ Erro ao parsear JSON:', e);
       return [];
     }
-    
-    return result === null || result === undefined ? [] : result;
     
   } catch (error) {
     console.error('❌ Erro crítico na requisição Supabase:', error);
-    toastError(error.message);
     return [];
   }
 }
@@ -286,36 +308,45 @@ function toastError(message) {
   }
 
   async function salvarCategoria() {
-    if (!form.nome.trim()) {
-      toast("Preencha o nome da categoria");
-      return;
-    }
-
-    const obj = {
-      tipo: form.tipo,
-      nome: form.nome.trim(),
-      classificacao: form.classificacao,
-      icone: form.icone,
-      ativo: true,
-      ordem: categorias.filter(c => c.tipo === form.tipo).length + 1
-    };
-
-    try {
-      if (editando) {
-        await sb("/categorias?id=eq." + editando.id, { method: "PATCH", token, body: obj });
-        toast("Categoria atualizada!");
-      } else {
-        await sb("/categorias", { method: "POST", token, body: obj });
-        toast("Categoria adicionada!");
-      }
-      await carregarCategorias();
-      if (onCategoriasChange) onCategoriasChange();
-      fecharModal();
-    } catch (e) {
-      console.error('Erro:', e);
-      toast("Erro: " + e.message);
-    }
+  if (!form.nome.trim()) {
+    toast("Preencha o nome da categoria");
+    return;
   }
+
+  const obj = {
+    tipo: form.tipo,
+    nome: form.nome.trim(),
+    classificacao: form.classificacao,
+    icone: form.icone,
+    ativo: true,
+    user_id: token ? uid : null // Se tiver token, associa ao usuário
+  };
+
+  try {
+    if (editando) {
+      await sb("/categorias?id=eq." + editando.id, { 
+        method: "PATCH", 
+        token, 
+        body: obj 
+      });
+      toast("✅ Categoria atualizada!");
+    } else {
+      await sb("/categorias", { 
+        method: "POST", 
+        token, 
+        body: obj 
+      });
+      toast("✅ Categoria adicionada!");
+    }
+    
+    await carregarCategorias();
+    if (onCategoriasChange) onCategoriasChange();
+    fecharModal();
+  } catch (e) {
+    console.error('Erro:', e);
+    toast("❌ Erro: " + e.message);
+  }
+}
 
   async function desativarCategoria(cat) {
     if (window.confirm(`Desativar a categoria "${cat.nome}"? Lançamentos existentes não serão afetados.`)) {
@@ -736,56 +767,87 @@ function Dashboard({ session, onLogout }) {
     setShowParcela(false); 
   }
 
-  async function salvar() {
-    if (!form.descricao || !form.valor || !form.data_compra) {
-      toast("Preencha descrição, valor e data da compra");
-      return;
-    }
-    setSaving(true);
-    
-    let dataVencimento = form.data_vencimento;
-    if (form.parcelas && form.parcela_atual && !form.data_vencimento) {
-      dataVencimento = calcularDataVencimento(form.data_compra, parseInt(form.parcela_atual));
-    }
-    
-    const obj = { 
-      tipo: form.tipo, 
-      cat: form.cat, 
-      descricao: form.descricao, 
-      valor: parseFloat(form.valor), 
-      data_compra: form.data_compra,
-      data_vencimento: dataVencimento || form.data_compra,
-      parcelas: form.parcelas ? parseInt(form.parcelas) : null, 
-      parcela_atual: form.parcela_atual ? parseInt(form.parcela_atual) : null, 
-      cartao: form.cartao || null 
-    };
-    
-    try {
-      if (editId) {
-        await sb("/lancamentos?id=eq." + editId, { method: "PATCH", token, body: obj });
+ async function salvar() {
+  if (!form.descricao || !form.valor || !form.data_compra) {
+    toast("Preencha descrição, valor e data da compra", "warning");
+    return;
+  }
+  
+  setSaving(true);
+  
+  let dataVencimento = form.data_vencimento;
+  if (form.parcelas && form.parcela_atual && !form.data_vencimento) {
+    dataVencimento = calcularDataVencimento(form.data_compra, parseInt(form.parcela_atual));
+  }
+  
+  const obj = { 
+    tipo: form.tipo, 
+    cat: form.cat, 
+    descricao: form.descricao, 
+    valor: parseFloat(form.valor), 
+    data_compra: form.data_compra,
+    data_vencimento: dataVencimento || form.data_compra,
+    parcelas: form.parcelas ? parseInt(form.parcelas) : null, 
+    parcela_atual: form.parcela_atual ? parseInt(form.parcela_atual) : null, 
+    cartao: form.cartao || null,
+    user_id: uid
+  };
+  
+  try {
+    if (editId) {
+      // PATCH - atualizar
+      delete obj.user_id; // Não atualizar o user_id
+      delete obj.created_at; // Não atualizar timestamps
+      
+      const result = await sb("/lancamentos?id=eq." + editId, { 
+        method: "PATCH", 
+        token, 
+        body: obj 
+      });
+      
+      if (result.success !== false) {
+        // Atualizar o estado local
         setLanc((prev) => {
           const prevArray = Array.isArray(prev) ? prev : [];
           return prevArray.map((l) => (l.id === editId ? { ...l, ...obj } : l));
         });
-        toast("Atualizado!");
+        toast("✅ Lançamento atualizado!");
+        cancelEdit();
       } else {
-        const d = await sb("/lancamentos", { method: "POST", token, body: { ...obj, user_id: uid } });
-        const newItem = Array.isArray(d) && d.length > 0 ? d[0] : d;
-        setLanc((prev) => {
-          const prevArray = Array.isArray(prev) ? prev : [];
-          return [newItem, ...prevArray];
-        });
-        toast("Salvo!");
+        throw new Error("Falha ao atualizar");
       }
-    } catch (e) { 
-      console.error('Erro ao salvar:', e);
-      toast("Erro: " + e.message); 
+    } else {
+      // POST - criar novo
+      const result = await sb("/lancamentos", { 
+        method: "POST", 
+        token, 
+        body: obj 
+      });
+      
+      // Recarregar a lista para garantir dados atualizados
+      const updated = await sb("/lancamentos?order=data_vencimento.desc", { token });
+      if (Array.isArray(updated)) {
+        setLanc(updated);
+      }
+      
+      toast("✅ Lançamento salvo!");
+      
+      // Limpar formulário
+      setForm({ 
+        ...BLANK, 
+        cat: form.tipo === "receita" ? catsRList[0] : catsDList[0],
+        data_compra: today(),
+        data_vencimento: today()
+      });
     }
-    setForm({ ...BLANK, cat: form.tipo === "receita" ? catsRList[0] : catsDList[0] }); 
-    setEditId(null); 
-    setShowParcela(false); 
+    
+  } catch (e) { 
+    console.error('❌ Erro ao salvar:', e);
+    toast(`❌ Erro: ${e.message}`, "error"); 
+  } finally {
     setSaving(false);
   }
+}
 
   async function duplicar(l) {
     if (!l) return;
