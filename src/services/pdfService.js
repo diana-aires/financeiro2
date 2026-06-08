@@ -3,9 +3,24 @@ import * as pdfjsLib from 'pdfjs-dist';
 pdfjsLib.GlobalWorkerOptions.workerSrc =
   `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
 
-/* ─────────────────────────────────────────────
-   EXTRAÇÃO DE TEXTO DO PDF
-───────────────────────────────────────────── */
+/* ═══════════════════════════════════════════════════════════════
+   MODELO DE DATAS — baseado nos dados reais do banco:
+
+   LANÇAMENTO SIMPLES (sem parcela):
+     data_compra     = data da transação (quando usou o cartão)
+     data_vencimento = data de vencimento da FATURA (único, do cabeçalho)
+
+   LANÇAMENTO PARCELADO (ex: linha "22/05 AMAZON 2/6 R$184,32"):
+     data_compra     = data da linha na fatura (= quando esta parcela é cobrada)
+     data_vencimento = data da ÚLTIMA parcela calculada:
+                       vencimento_fatura + (parcelas_restantes × 1 mês)
+                       Exemplo: fatura jun/2026, parcela 2/6 →
+                         parcelas restantes = 6 - 2 = 4
+                         última parcela = jun + 4 meses = out/2026
+     parcela_atual   = número da parcela na linha (2)
+     parcelas        = total de parcelas (6)
+═══════════════════════════════════════════════════════════════ */
+
 export async function extractDataFromPDF(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -29,31 +44,17 @@ export async function extractDataFromPDF(file) {
   });
 }
 
-/* ─────────────────────────────────────────────
-   PARSING PRINCIPAL
-   
-   Lógica de parcelamentos:
-   - Linha da fatura: "03/03 AMAZON 2/6 R$ 150,00"
-     → data_compra    = 03/03/2026  (data literal da linha)
-     → data_vencimento= vencimento da fatura  (extraído do cabeçalho)
-     → parcela_atual  = 2
-     → parcelas       = 6
-     → cartao         = nome do cartão (extraído do cabeçalho)
-   
-   - NÃO gera parcelas futuras aqui — o controle de avanço
-     de parcela_atual fica na tela de Cartão (marcar como paga).
-───────────────────────────────────────────── */
+/* ─── PARSING PRINCIPAL ─── */
 function parseTransactions(text) {
   const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
 
-  const vencimentoFatura = extractVencimento(lines);
+  const vencimentoFatura = extractVencimento(lines);  // data do vencimento da fatura inteira
   const nomeCartao       = extractNomeCartao(lines);
 
   const transactions = [];
 
   for (const line of lines) {
     if (isLinhaIgnorada(line)) continue;
-
     const entry = parseLinha(line, vencimentoFatura, nomeCartao);
     if (entry) transactions.push(entry);
   }
@@ -61,9 +62,7 @@ function parseTransactions(text) {
   return transactions;
 }
 
-/* ─────────────────────────────────────────────
-   EXTRAIR VENCIMENTO DA FATURA (cabeçalho)
-───────────────────────────────────────────── */
+/* ─── EXTRAIR VENCIMENTO DA FATURA ─── */
 function extractVencimento(lines) {
   const patterns = [
     /vencimento[:\s]+(\d{2}\/\d{2}\/\d{4})/i,
@@ -71,6 +70,7 @@ function extractVencimento(lines) {
     /due\s*date[:\s]+(\d{2}\/\d{2}\/\d{4})/i,
     /data\s*de\s*pagamento[:\s]+(\d{2}\/\d{2}\/\d{4})/i,
     /pagar\s*até[:\s]+(\d{2}\/\d{2}\/\d{4})/i,
+    /pagamento\s*até[:\s]+(\d{2}\/\d{2}\/\d{4})/i,
   ];
 
   for (const line of lines) {
@@ -80,75 +80,75 @@ function extractVencimento(lines) {
     }
   }
 
-  // Fallback: próximo dia 10 do mês atual
-  const hoje = new Date();
-  const d = new Date(hoje.getFullYear(), hoje.getMonth(), 10);
-  if (d < hoje) d.setMonth(d.getMonth() + 1);
+  // Fallback: próximo dia 5 a partir de hoje
+  const d = new Date();
+  d.setDate(5);
+  if (d < new Date()) d.setMonth(d.getMonth() + 1);
   return d.toISOString().split('T')[0];
 }
 
-/* ─────────────────────────────────────────────
-   EXTRAIR NOME DO CARTÃO (cabeçalho)
-───────────────────────────────────────────── */
+/* ─── EXTRAIR NOME DO CARTÃO ─── */
 function extractNomeCartao(lines) {
   const patterns = [
-    /nubank/i, /inter/i, /itaú|itau/i, /bradesco/i,
-    /santander/i, /c6\s*bank/i, /caixa/i, /bb\b|banco\s*do\s*brasil/i,
-    /xp\s*visa/i, /neon/i, /next/i, /picpay/i,
-  ];
-  const labels = [
-    'Nubank','Inter','Itaú','Bradesco',
-    'Santander','C6','Caixa','BB',
-    'XP Visa','Neon','Next','PicPay',
+    { re: /nubank/i, label: 'Nubank' },
+    { re: /inter/i, label: 'Inter' },
+    { re: /itaú|itau/i, label: 'Itaú' },
+    { re: /bradesco/i, label: 'Bradesco' },
+    { re: /santander/i, label: 'Santander' },
+    { re: /c6\s*bank/i, label: 'C6' },
+    { re: /caixa/i, label: 'Caixa' },
+    { re: /ourocard|banco\s*do\s*brasil|\bbb\b/i, label: 'OUROCARD BB' },
+    { re: /mercado\s*pago/i, label: 'Mercado Pago' },
+    { re: /xp\s*visa/i, label: 'XP Visa' },
+    { re: /neon/i, label: 'Neon' },
+    { re: /next/i, label: 'Next' },
+    { re: /picpay/i, label: 'PicPay' },
   ];
 
-  for (const line of lines.slice(0, 20)) { // cabeçalho: primeiras 20 linhas
-    for (let i = 0; i < patterns.length; i++) {
-      if (patterns[i].test(line)) return labels[i];
+  for (const line of lines.slice(0, 25)) {
+    for (const { re, label } of patterns) {
+      if (re.test(line)) return label;
     }
   }
   return 'Importado';
 }
 
-/* ─────────────────────────────────────────────
-   LINHAS A IGNORAR
-───────────────────────────────────────────── */
+/* ─── LINHAS A IGNORAR ─── */
 function isLinhaIgnorada(line) {
-  const ignorar = [
+  return [
     /total\s+da\s+fatura/i,
     /saldo\s+anterior/i,
     /pagamento\s+recebido/i,
-    /limite\s+(total|disponível)/i,
-    /fatura\s+fechada/i,
+    /limite\s+(total|disponível|disponivel)/i,
+    /fatura\s+(fechada|aberta|atual)/i,
     /vencimento/i,
+    /data\s+de\s+pagamento/i,
     /^\s*$/,
-  ];
-  return ignorar.some(re => re.test(line));
+    /^-+$/,
+  ].some(re => re.test(line));
 }
 
-/* ─────────────────────────────────────────────
-   PARSEAR UMA LINHA
-   
+/* ─── PARSEAR UMA LINHA ─────────────────────────────────────────
    Formatos suportados:
-   1) "03/03 AMAZON PRIME 2/6 150,00"
-   2) "03/03/2026 AMAZON PRIME 2/6 R$ 150,00"
-   3) "03/03 NETFLIX 150,00"            (sem parcelamento)
-   4) "03 MAR AMAZON 2/6 150,00"
-───────────────────────────────────────────── */
+     "22/05 AMAZON PRIME 2/6 R$ 184,32"
+     "22/05/2026 AMAZON PRIME 2/6 184,32"
+     "22/05 POSTO DUBAI 180,00"            (sem parcela)
+     "22 MAI GALETERIA 55,00"
+─────────────────────────────────────────────────────────────── */
 function parseLinha(line, vencimentoFatura, cartao) {
-  // ── Detectar valor monetário (obrigatório) ──
-  // Aceita: "1.500,00" / "150,00" / "R$ 150,00"
+  // 1. Detectar valor monetário no final
   const valorRe = /(\d{1,3}(?:\.\d{3})*,\d{2})\s*$/;
   const valorMatch = line.match(valorRe);
   if (!valorMatch) return null;
 
   const valor = parseFloat(valorMatch[1].replace(/\./g, '').replace(',', '.'));
-  if (!valor || valor <= 0) return null;
+  if (!valor || valor <= 0 || valor > 50000) return null;
 
   const semValor = line.slice(0, valorMatch.index).trim();
 
-  // ── Detectar parcelamento: "2/6" ou "02/06" ──
-  // ATENÇÃO: não confundir com datas "03/03" — parcelamento vem após a descrição
+  // 2. Detectar parcelamento no final da descrição (antes do valor)
+  //    Padrão: "2/6" ou "02/06" — garante que é parcela e não data
+  //    Heurística: parcela vem APÓS a descrição, antes do valor
   const parcelaRe = /\b(\d{1,2})\/(\d{1,2})\s*$/;
   let parcela_atual = null;
   let parcelas = null;
@@ -158,23 +158,22 @@ function parseLinha(line, vencimentoFatura, cartao) {
   if (parcelaMatch) {
     const pa = parseInt(parcelaMatch[1]);
     const pt = parseInt(parcelaMatch[2]);
-    // Válido se pa <= pt e pt > 1 e pt <= 96 (máximo 8 anos)
-    if (pa <= pt && pt > 1 && pt <= 96) {
+    // Válido: pa <= pt, pt >= 2, pt <= 96 (máx 8 anos)
+    if (pa >= 1 && pa <= pt && pt >= 2 && pt <= 96) {
       parcela_atual = pa;
       parcelas = pt;
       semParcela = semValor.slice(0, parcelaMatch.index).trim();
     }
   }
 
-  // ── Detectar data da compra ──
-  // Formatos: "03/03/2026", "03/03/26", "03/03", "03 MAR"
-  const dataRe = /^(\d{2}\/\d{2}(?:\/\d{2,4})?)\s+/;
+  // 3. Detectar data da linha (= data da compra/cobrança)
+  const dataRe  = /^(\d{2}\/\d{2}(?:\/\d{2,4})?)\s+/;
   const dataRe2 = /^(\d{2}\s+(?:jan|fev|mar|abr|mai|jun|jul|ago|set|out|nov|dez))\s+/i;
 
   let data_compra = null;
   let descricao = semParcela;
 
-  const dataMatch = semParcela.match(dataRe);
+  const dataMatch  = semParcela.match(dataRe);
   const dataMatch2 = semParcela.match(dataRe2);
 
   if (dataMatch) {
@@ -185,16 +184,21 @@ function parseLinha(line, vencimentoFatura, cartao) {
     descricao = semParcela.slice(dataMatch2[0].length).trim();
   }
 
-  // Sem data válida → ignora linha
   if (!data_compra) return null;
 
-  // Descrição mínima
   descricao = limpezaDescricao(descricao);
   if (descricao.length < 3) return null;
 
+  // 4. Calcular data_vencimento conforme o modelo real do banco:
+  //
+  //    Simples  → vencimento da fatura (mesmo para todos)
+  //    Parcelado → data da última parcela:
+  //                 vencimento_fatura + (parcelas - parcela_atual) meses
+  const data_vencimento = calcularVencimento(vencimentoFatura, parcela_atual, parcelas);
+
   return {
     data_compra,
-    data_vencimento: vencimentoFatura,
+    data_vencimento,
     descricao: descricao.slice(0, 100),
     valor,
     cat: categorizar(descricao),
@@ -208,14 +212,35 @@ function parseLinha(line, vencimentoFatura, cartao) {
   };
 }
 
-/* ─────────────────────────────────────────────
-   CONVERSÃO DE DATAS
-───────────────────────────────────────────── */
+/* ─── CALCULAR DATA DE VENCIMENTO ─────────────────────────────
+   Simples:    retorna vencimentoFatura direto
+   Parcelado:  vencimentoFatura + parcelas_restantes meses
+               Ex: fatura vence 05/06/2026, parcela 2/6
+                   restantes = 6 - 2 = 4
+                   última = 05/10/2026
+─────────────────────────────────────────────────────────────── */
+function calcularVencimento(vencimentoFatura, parcela_atual, parcelas) {
+  if (!parcelas || !parcela_atual) return vencimentoFatura;
+
+  const restantes = parcelas - parcela_atual;
+  if (restantes === 0) return vencimentoFatura;
+
+  const [ano, mes, dia] = vencimentoFatura.split('-').map(Number);
+  const d = new Date(ano, mes - 1 + restantes, dia);
+
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${dd}`;
+}
+
+/* ─── CONVERSÃO DE DATAS ─── */
 
 /**
- * "03/03/2026" → "2026-03-03"
- * "03/03/26"   → "2026-03-03"
- * "03/03"      → ano inferido pelo contexto do vencimento da fatura
+ * "22/05/2026" → "2026-05-22"
+ * "22/05/26"   → "2026-05-22"
+ * "22/05"      → ano inferido pelo vencimento da fatura:
+ *                 se mês da compra > mês do vencimento → ano anterior
  */
 function isoFromBR(dateStr, vencimentoFatura = null) {
   const parts = dateStr.trim().split('/');
@@ -226,7 +251,6 @@ function isoFromBR(dateStr, vencimentoFatura = null) {
   if (parts[2]) {
     year = parts[2].length === 2 ? '20' + parts[2] : parts[2];
   } else if (vencimentoFatura) {
-    // Infere o ano: se o mês da compra > mês do vencimento, é ano anterior
     const vAno = parseInt(vencimentoFatura.slice(0, 4));
     const vMes = parseInt(vencimentoFatura.slice(5, 7));
     const cMes = parseInt(month);
@@ -238,9 +262,6 @@ function isoFromBR(dateStr, vencimentoFatura = null) {
   return `${year}-${month}-${day}`;
 }
 
-/**
- * "03 MAR" → "2026-03-03"
- */
 const MESES_ABREV = { jan:1,fev:2,mar:3,abr:4,mai:5,jun:6,jul:7,ago:8,set:9,out:10,nov:11,dez:12 };
 
 function isoFromMesAbrev(str, vencimentoFatura = null) {
@@ -261,42 +282,39 @@ function isoFromMesAbrev(str, vencimentoFatura = null) {
   return `${year}-${month}-${day}`;
 }
 
-/* ─────────────────────────────────────────────
-   LIMPEZA DE DESCRIÇÃO
-───────────────────────────────────────────── */
+/* ─── LIMPEZA DE DESCRIÇÃO ─── */
 function limpezaDescricao(str) {
   return str
-    .replace(/r\$\s*/gi, '')           // Remove "R$"
-    .replace(/\d{1,3}(?:\.\d{3})*,\d{2}/g, '') // Remove valores residuais
+    .replace(/r\$\s*/gi, '')
+    .replace(/\d{1,3}(?:\.\d{3})*,\d{2}/g, '')
     .replace(/[^\w\s\u00C0-\u00FF\-\.\/]/g, ' ')
     .replace(/\s{2,}/g, ' ')
     .trim()
     .toUpperCase();
 }
 
-/* ─────────────────────────────────────────────
-   CATEGORIZAÇÃO AUTOMÁTICA
-───────────────────────────────────────────── */
+/* ─── CATEGORIZAÇÃO ─── */
 const CATEGORIAS_MAP = [
-  { re: /supermercado|mercado|carrefour|extra|pao\s*de\s*acucar|atacadao|assai/i, cat: 'Alimentação' },
-  { re: /ifood|rappi|uber\s*eat|delivery|pizza|burger|mcdonalds|subway|restaurante|lanchonete|padaria/i, cat: 'Alimentação' },
-  { re: /netflix|spotify|amazon\s*prime|disney|hbo|globo\s*play|paramount|deezer|apple\s*tv/i, cat: 'Assinaturas' },
-  { re: /uber|99\s*pop|cabify|taxi|99taxi/i, cat: 'Transporte' },
-  { re: /posto|petrobras|shell|ipiranga|gasolina|combustivel/i, cat: 'Transporte' },
-  { re: /farmacia|drogaria|droga\s*raia|pacheco|ultrafarma|remedios/i, cat: 'Saúde' },
-  { re: /medico|clinica|hospital|laboratorio|exame|plano\s*de\s*saude|unimed|amil/i, cat: 'Saúde' },
-  { re: /amazon|mercado\s*livre|shopee|aliexpress|americanas|magazineluiza|magazine\s*luiza|submarino/i, cat: 'Compras' },
-  { re: /shopping|loja|zara|renner|riachuelo|hm|centauro/i, cat: 'Compras' },
+  { re: /supermercado|mercado|carrefour|extra|pao\s*de\s*acucar|atacadao|assai|mateus|emporio|spazio|ilha\s*super|minimarket/i, cat: 'Supermercados' },
+  { re: /ifood|rappi|uber\s*eat|delivery|pizza|burger|mcdonalds|subway|restaurante|lanchonete|padaria|bistro|galeteria|bonsai|kfc|cabana|selfitari|diverno|dali\s*pizza|casa\s*de\s*paes/i, cat: 'Restaurantes' },
+  { re: /netflix|spotify|amazon\s*prime|disney|hbo|globo\s*play|paramount|deezer|apple\s*tv|smiles/i, cat: 'Assinaturas' },
+  { re: /uber|99\s*pop|cabify|taxi|estacionamento/i, cat: 'Transporte' },
+  { re: /posto|petrobras|shell|ipiranga|gasolina|combustivel|dubai/i, cat: 'Transporte' },
+  { re: /farmacia|drogaria|droga\s*raia|pacheco|ultrafarma|drogasil|extrafarma/i, cat: 'Saude' },
+  { re: /medico|clinica|hospital|laboratorio|exame|plano\s*de\s*saude|unimed|amil/i, cat: 'Saude' },
+  { re: /amazon|mercado\s*livre|shopee|aliexpress|americanas|magazineluiza|magazine\s*luiza|submarino|havan|casas\s*bahia|pex\s*onr|magalu|acacia|livra/i, cat: 'Compras' },
   { re: /energia|light|enel|cemig|copel|eletropaulo|coelba/i, cat: 'Energia' },
-  { re: /internet|vivo|claro|tim|oi\s*fibra|net\s*combo|banda\s*larga/i, cat: 'Internet' },
-  { re: /hotel|airbnb|booking|pousada|hostel/i, cat: 'Viagem' },
+  { re: /internet|fibra|banda\s*larga/i, cat: 'Internet' },
+  { re: /vivo|claro|tim|oi\b/i, cat: 'Telefone' },
+  { re: /hotel|airbnb|booking|pousada|hostel|bussola\s*de\s*passagens/i, cat: 'Viagem' },
   { re: /latam|gol|azul|tam|passagem|aeroporto/i, cat: 'Viagem' },
-  { re: /cinema|ingresso|teatro|show|evento|bilheteria/i, cat: 'Lazer' },
-  { re: /academia|crossfit|smart\s*fit|bodytech|gym/i, cat: 'Saúde' },
-  { re: /sallve|natura|avon|boticario|sephora|beauty|cabelo|salao/i, cat: 'Beleza' },
-  { re: /escola|faculdade|curso|udemy|alura|estacio|anhanguera/i, cat: 'Insumos' },
-  { re: /financiamento|emprestimo|parcela\s*veiculo|carro|fipe/i, cat: 'Financiamento' },
-  { re: /investimento|tesouro|cdb|fundo|acao|btg|xp\s*invest/i, cat: 'Investimento' },
+  { re: /cinema|ingresso|teatro|show|evento/i, cat: 'Lazer' },
+  { re: /academia|crossfit|smart\s*fit|bodytech|gym/i, cat: 'Saude' },
+  { re: /sallve|natura|avon|boticario|sephora|esmalteria/i, cat: 'Beleza' },
+  { re: /escola|faculdade|curso|udemy|alura/i, cat: 'Insumos' },
+  { re: /financiamento|emprestimo/i, cat: 'Financiamento' },
+  { re: /investimento|tesouro|cdb|fundo/i, cat: 'Investimento' },
+  { re: /itech|servico|manutencao/i, cat: 'Servicos' },
 ];
 
 function categorizar(descricao) {
@@ -307,7 +325,5 @@ function categorizar(descricao) {
   return 'Outro';
 }
 
-/* ─────────────────────────────────────────────
-   EXPORT para uso futuro
-───────────────────────────────────────────── */
-export { isoFromBR, categorizar };
+export { isoFromBR, calcularVencimento, categorizar };
+
