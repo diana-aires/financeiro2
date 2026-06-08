@@ -1,7 +1,8 @@
 import * as pdfjsLib from 'pdfjs-dist';
+import workerSrc from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 
-pdfjsLib.GlobalWorkerOptions.workerSrc =
-  `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
+// Usa o worker empacotado pelo Vite — sem CDN externo, sem dependência de versão
+pdfjsLib.GlobalWorkerOptions.workerSrc = workerSrc;
 
 /* ═══════════════════════════════════════════════════════════════
    MODELO DE DADOS — baseado nos lançamentos reais do banco:
@@ -284,4 +285,3 @@ function categorizar(desc) {
 }
 
 export { isoFromBR, buildFaturaLabel };
-
