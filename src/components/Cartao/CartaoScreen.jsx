@@ -10,7 +10,7 @@ import { MESES_PT } from '../../hooks/usePeriodo';
  * CartaoScreen
  *
  * Lógica de meses:
- *  - Agrupa TODOS os parcelamentos por mês de vencimento (data_vencimento)
+ *  - Agrupa TODOS os parcelamentos por mês de cobrança (data_compra)
  *  - Exibe pills com o nome do mês; o mês do período global vem selecionado por padrão
  *  - Clicar num mês expande/recolhe o painel de parcelas daquele mês
  *  - Dentro de cada mês, agrupa por cartão
@@ -25,11 +25,11 @@ export function CartaoScreen({ lancamentos, periodoProps, token, session, cartoe
     lancamentos.filter(l => l.parcelas && l.parcelas > 0),
   [lancamentos]);
 
-  // Meses que têm pelo menos 1 parcela, ordenados desc por data_vencimento
+  // Meses que têm pelo menos 1 parcela, ordenados desc por data_compra
   const mesesComParcela = useMemo(() => {
     const mesSet = new Set(
       todosParcelados
-        .map(l => (l.data_vencimento || l.data_compra || "").slice(0, 7))
+        .map(l => (l.data_compra || l.data_vencimento || "").slice(0, 7))
         .filter(Boolean)
     );
     return [...mesSet].sort().reverse().map(v => {
@@ -42,7 +42,7 @@ export function CartaoScreen({ lancamentos, periodoProps, token, session, cartoe
   const parcelasMesAberto = useMemo(() => {
     if (!mesAberto) return [];
     return todosParcelados.filter(l =>
-      (l.data_vencimento || l.data_compra || "").startsWith(mesAberto)
+      (l.data_compra || l.data_vencimento || "").startsWith(mesAberto)
     );
   }, [todosParcelados, mesAberto]);
 
@@ -118,7 +118,7 @@ export function CartaoScreen({ lancamentos, periodoProps, token, session, cartoe
               {mesesComParcela.map(m => {
                 const ativo = mesAberto === m.valor;
                 const qtd = todosParcelados.filter(l =>
-                  (l.data_vencimento || l.data_compra || "").startsWith(m.valor)
+                  (l.data_compra || l.data_vencimento || "").startsWith(m.valor)
                 ).length;
                 return (
                   <button
