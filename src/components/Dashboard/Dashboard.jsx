@@ -8,7 +8,7 @@ import { Toast } from '../Common/Toast';
 import { PeriodoSelector } from '../Common/PeriodoSelector';
 import { usePeriodo } from '../../hooks/usePeriodo';
 import { LancamentosScreen } from '../Lancamentos/LancamentosScreen';
-import { CartaoScreen } from '../Cartao/CartaoScreen';
+import { FaturasScreen } from '../Faturas/FaturasScreen';
 import { MetasScreen } from '../Metas/MetasScreen';
 import { GerenciarCategorias } from '../Categorias/GerenciarCategorias';
 import { IAScreen } from '../IA/IAScreen';
@@ -133,14 +133,13 @@ export function Dashboard({ session, onLogout }) {
           />
         )}
 
-        {aba === "cartao" && (
-          <CartaoScreen
+        {aba === "faturas" && (
+          <FaturasScreen
             lancamentos={safeLanc}
+            lancFiltrados={lancFiltrados}
             periodoProps={{ ...periodoProps, mesAno: periodo.mesAno, labelAtual: periodo.labelAtual }}
             token={token}
             session={session}
-            cartoes={cartoes}
-            setCartoes={setCartoes}
             toast={toast}
             onLancamentosUpdate={recarregarLancamentos}
           />
@@ -278,4 +277,3 @@ function DashboardContent({ tR, tD, saldo, inv, fin, rec, desp, metas, setAba, l
 }
 
 export default Dashboard;
-
