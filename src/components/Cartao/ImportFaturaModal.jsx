@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { C, styles } from '../../styles/theme';
 import { extractDataFromPDF } from '../../services/pdfService';
-import sb from '../../services/supabase'; // CORRIGIDO: era `import { sb }` → default export
+import sb from '../../services/supabase';
 import { fmt } from '../../utils/formatters';
 
 export function ImportFaturaModal({ isOpen, onClose, onImport, token, uid }) {
@@ -9,14 +9,16 @@ export function ImportFaturaModal({ isOpen, onClose, onImport, token, uid }) {
   const [loading, setLoading] = useState(false);
   const [preview, setPreview] = useState([]);
   const [processing, setProcessing] = useState(false);
+  const [selecionados, setSelecionados] = useState(new Set());
 
   const handleFileChange = (e) => {
-    const selectedFile = e.target.files[0];
-    if (selectedFile && selectedFile.type === 'application/pdf') {
-      setFile(selectedFile);
+    const f = e.target.files[0];
+    if (f?.type === 'application/pdf') {
+      setFile(f);
       setPreview([]);
+      setSelecionados(new Set());
     } else {
-      alert('Por favor, selecione um arquivo PDF válido.');
+      alert('Selecione um arquivo PDF válido.');
       e.target.value = '';
     }
   };
@@ -27,43 +29,65 @@ export function ImportFaturaModal({ isOpen, onClose, onImport, token, uid }) {
     try {
       const transactions = await extractDataFromPDF(file);
       setPreview(transactions);
-    } catch (error) {
-      console.error('Erro ao processar PDF:', error);
-      alert('Erro ao processar o PDF. Verifique se o arquivo é uma fatura válida.');
+      // Seleciona todos por padrão
+      setSelecionados(new Set(transactions.map((_, i) => i)));
+    } catch (err) {
+      console.error('Erro ao processar PDF:', err);
+      alert('Erro ao processar o PDF. Verifique se o arquivo é uma fatura de cartão válida.');
     }
     setLoading(false);
   };
 
-  const checkDuplicate = async (transaction) => {
-    const fiveDaysAgo = new Date();
-    fiveDaysAgo.setDate(fiveDaysAgo.getDate() - 5);
-    const fiveDaysAgoStr = fiveDaysAgo.toISOString().split('T')[0];
-
-    const existing = await sb(
-      `/lancamentos?data_compra=gte.${fiveDaysAgoStr}&descricao=ilike.*${encodeURIComponent(transaction.descricao.substring(0, 30))}*&valor=eq.${transaction.valor}&select=id`,
-      { token }
-    );
-    return Array.isArray(existing) && existing.length > 0;
+  /**
+   * Verificação de duplicata:
+   * Para parcelamentos: considera descricao + parcela_atual + valor (evita reimportar a mesma parcela)
+   * Para compras simples: considera descricao + data_compra + valor
+   */
+  const checkDuplicate = async (t) => {
+    try {
+      let query;
+      if (t.parcelas) {
+        // Parcelamento: checar pela parcela específica
+        query = `/lancamentos?user_id=eq.${uid}` +
+          `&descricao=ilike.*${encodeURIComponent(t.descricao.slice(0, 25))}*` +
+          `&parcela_atual=eq.${t.parcela_atual}` +
+          `&parcelas=eq.${t.parcelas}` +
+          `&valor=eq.${t.valor}` +
+          `&select=id`;
+      } else {
+        // Compra simples: checar por data + descrição + valor
+        query = `/lancamentos?user_id=eq.${uid}` +
+          `&data_compra=eq.${t.data_compra}` +
+          `&descricao=ilike.*${encodeURIComponent(t.descricao.slice(0, 25))}*` +
+          `&valor=eq.${t.valor}` +
+          `&select=id`;
+      }
+      const existing = await sb(query, { token });
+      return Array.isArray(existing) && existing.length > 0;
+    } catch {
+      return false; // Em caso de erro, deixa importar
+    }
   };
 
   const handleImport = async () => {
-    if (preview.length === 0) return;
+    const itens = preview.filter((_, i) => selecionados.has(i));
+    if (itens.length === 0) return;
     setProcessing(true);
 
     let novos = 0, duplicados = 0, erros = 0;
 
-    for (const transaction of preview) {
+    for (const t of itens) {
       try {
-        const isDuplicate = await checkDuplicate(transaction);
-        if (!isDuplicate) {
-          const result = await sb("/lancamentos", { method: "POST", token, body: { ...transaction, user_id: uid } });
-          if (result && (result.id || result.success !== false)) novos++;
-          else erros++;
-        } else {
-          duplicados++;
-        }
-      } catch (error) {
-        console.error('Erro ao salvar transação:', error);
+        const isDup = await checkDuplicate(t);
+        if (isDup) { duplicados++; continue; }
+
+        await sb("/lancamentos", {
+          method: "POST", token,
+          body: { ...t, user_id: uid }
+        });
+        novos++;
+      } catch (err) {
+        console.error('Erro ao salvar:', err);
         erros++;
       }
     }
@@ -74,84 +98,210 @@ export function ImportFaturaModal({ isOpen, onClose, onImport, token, uid }) {
     onClose();
   };
 
+  const toggleItem = (i) => {
+    setSelecionados(prev => {
+      const n = new Set(prev);
+      n.has(i) ? n.delete(i) : n.add(i);
+      return n;
+    });
+  };
+
+  const toggleTodos = () => {
+    setSelecionados(prev =>
+      prev.size === preview.length ? new Set() : new Set(preview.map((_, i) => i))
+    );
+  };
+
   if (!isOpen) return null;
+
+  const parcelados = preview.filter(t => t.parcelas);
+  const simples    = preview.filter(t => !t.parcelas);
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 700, width: '90%' }}>
-        <div style={{ padding: '1.5rem' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-            <h3 style={{ fontSize: 18, fontWeight: 600, color: C.navy, margin: 0 }}>Importar Fatura em PDF</h3>
-            <button onClick={onClose} style={styles.buttonIcon}>
-              <i className="ti ti-x" style={{ fontSize: 20, color: C.grayD }} />
-            </button>
-          </div>
+      <div className="modal-content" onClick={e => e.stopPropagation()}
+        style={{ maxWidth: 780, width: '94%', maxHeight: '90vh', display: 'flex', flexDirection: 'column' }}>
 
-          <div style={{ marginBottom: 20 }}>
-            <label style={styles.label}>Selecione o arquivo PDF da fatura</label>
-            <input type="file" accept=".pdf" onChange={handleFileChange} style={{ ...styles.input, padding: '10px' }} />
-            <div style={{ fontSize: 11, color: C.grayD, marginTop: 5 }}>
-              Suporta faturas de cartão de crédito em formato PDF
+        {/* Header */}
+        <div style={{ padding: '1.25rem 1.5rem', borderBottom: '1px solid ' + C.border, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
+          <div>
+            <h3 style={{ fontSize: 17, fontWeight: 700, color: C.navy, margin: 0 }}>Importar Fatura em PDF</h3>
+            <div style={{ fontSize: 11, color: C.grayD, marginTop: 2 }}>
+              Compras parceladas são reconhecidas automaticamente (ex: 2/6)
             </div>
+          </div>
+          <button onClick={onClose} style={styles.buttonIcon}>
+            <i className="ti ti-x" style={{ fontSize: 20, color: C.grayD }} />
+          </button>
+        </div>
+
+        {/* Corpo scrollável */}
+        <div style={{ flex: 1, overflowY: 'auto', padding: '1.25rem 1.5rem' }}>
+
+          {/* Seleção de arquivo */}
+          <div style={{ marginBottom: 16 }}>
+            <label style={styles.label}>Arquivo PDF da fatura</label>
+            <input type="file" accept=".pdf" onChange={handleFileChange}
+              style={{ ...styles.input, padding: '9px' }} />
           </div>
 
           {file && !loading && preview.length === 0 && (
-            <button onClick={handlePreview} style={styles.buttonPrimary}>
-              <i className="ti ti-eye" /> Visualizar transações
+            <button onClick={handlePreview} style={{ ...styles.buttonPrimary, gap: 6 }}>
+              <i className="ti ti-eye" style={{ fontSize: 14 }} /> Visualizar transações
             </button>
           )}
 
           {loading && (
-            <div style={{ textAlign: 'center', padding: '2rem' }}>
-              <i className="ti ti-loader-2" style={{ animation: 'spin 1s linear infinite', fontSize: 32 }} />
-              <div style={{ marginTop: 10, fontSize: 13, color: C.grayD }}>Processando PDF...</div>
+            <div style={{ textAlign: 'center', padding: '2rem', color: C.grayD }}>
+              <i className="ti ti-loader-2" style={{ fontSize: 32, animation: 'spin 1s linear infinite', display: 'block', marginBottom: 10 }} />
+              Analisando PDF e identificando parcelamentos...
             </div>
           )}
 
           {preview.length > 0 && !processing && (
             <>
-              <div style={{ marginBottom: 15 }}>
-                <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 10 }}>Prévia das transações encontradas:</div>
-                <div style={{ maxHeight: 400, overflowY: 'auto', border: `1px solid ${C.border}`, borderRadius: 8 }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-                    <thead style={{ position: 'sticky', top: 0, background: C.white }}>
-                      <tr style={{ borderBottom: `2px solid ${C.border}` }}>
-                        <th style={{ padding: 8, textAlign: 'left' }}>Data</th>
-                        <th style={{ padding: 8, textAlign: 'left' }}>Descrição</th>
-                        <th style={{ padding: 8, textAlign: 'right' }}>Valor</th>
-                        <th style={{ padding: 8, textAlign: 'left' }}>Categoria</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {preview.map((trans, idx) => (
-                        <tr key={idx} style={{ borderBottom: `1px solid ${C.border}` }}>
-                          <td style={{ padding: 8 }}>{trans.data_compra.split('-').reverse().join('/')}</td>
-                          <td style={{ padding: 8 }}>{trans.descricao}</td>
-                          <td style={{ padding: 8, textAlign: 'right', color: C.red }}>{fmt(trans.valor)}</td>
-                          <td style={{ padding: 8 }}>{trans.cat}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+              {/* Resumo da importação */}
+              <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
+                {[
+                  { label: 'Total encontrado', value: preview.length, color: C.navy },
+                  { label: 'Parcelamentos', value: parcelados.length, color: C.purple },
+                  { label: 'Compras simples', value: simples.length, color: C.green },
+                  { label: 'Selecionados', value: selecionados.size, color: C.amber },
+                ].map(k => (
+                  <div key={k.label} style={{ flex: 1, minWidth: 110, padding: '10px 12px', background: k.color + '10', border: '1px solid ' + k.color + '30', borderRadius: 10 }}>
+                    <div style={{ fontSize: 10, color: C.grayD, fontWeight: 600, textTransform: 'uppercase' }}>{k.label}</div>
+                    <div style={{ fontSize: 20, fontWeight: 700, color: k.color }}>{k.value}</div>
+                  </div>
+                ))}
               </div>
-              <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-                <button onClick={onClose} style={{ ...styles.buttonPrimary, background: C.grayD }}>Cancelar</button>
-                <button onClick={handleImport} style={styles.buttonSuccess}>
-                  <i className="ti ti-device-floppy" /> Importar {preview.length} transações
+
+              {/* Controles */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+                <button onClick={toggleTodos} style={{ ...styles.buttonPrimary, background: C.grayD, fontSize: 11, padding: '5px 12px' }}>
+                  {selecionados.size === preview.length ? 'Desmarcar todos' : 'Selecionar todos'}
                 </button>
+                <span style={{ fontSize: 11, color: C.grayD }}>Clique na linha para (des)selecionar</span>
               </div>
+
+              {/* Tabela de prévia */}
+              <div style={{ border: '1px solid ' + C.border, borderRadius: 10, overflow: 'hidden' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                  <thead>
+                    <tr style={{ background: C.slate, borderBottom: '2px solid ' + C.border }}>
+                      <th style={{ width: 32, padding: '8px' }}></th>
+                      <th style={{ padding: '8px', textAlign: 'left', color: C.grayD, fontWeight: 600 }}>Data compra</th>
+                      <th style={{ padding: '8px', textAlign: 'left', color: C.grayD, fontWeight: 600 }}>Descrição</th>
+                      <th style={{ padding: '8px', textAlign: 'center', color: C.grayD, fontWeight: 600 }}>Parcela</th>
+                      <th style={{ padding: '8px', textAlign: 'left', color: C.grayD, fontWeight: 600 }}>Categoria</th>
+                      <th style={{ padding: '8px', textAlign: 'left', color: C.grayD, fontWeight: 600 }}>Vencimento</th>
+                      <th style={{ padding: '8px', textAlign: 'right', color: C.grayD, fontWeight: 600 }}>Valor</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {preview.map((t, i) => {
+                      const sel = selecionados.has(i);
+                      const isParc = !!t.parcelas;
+                      return (
+                        <tr key={i}
+                          onClick={() => toggleItem(i)}
+                          style={{
+                            borderBottom: i < preview.length - 1 ? '1px solid ' + C.border : 'none',
+                            background: sel ? (isParc ? C.purple + '08' : C.green + '06') : '#fff',
+                            cursor: 'pointer',
+                            opacity: sel ? 1 : 0.45,
+                            transition: 'all .1s',
+                          }}
+                        >
+                          <td style={{ padding: '8px', textAlign: 'center' }}>
+                            <div style={{
+                              width: 16, height: 16, borderRadius: 4,
+                              border: '2px solid ' + (sel ? C.navy : C.border),
+                              background: sel ? C.navy : '#fff',
+                              display: 'inline-flex', alignItems: 'center', justifyContent: 'center'
+                            }}>
+                              {sel && <i className="ti ti-check" style={{ fontSize: 10, color: '#fff' }} />}
+                            </div>
+                          </td>
+                          <td style={{ padding: '8px', color: C.grayD, whiteSpace: 'nowrap' }}>
+                            {formatDateBR(t.data_compra)}
+                          </td>
+                          <td style={{ padding: '8px', fontWeight: 500, maxWidth: 200 }}>
+                            <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {t.descricao}
+                            </div>
+                          </td>
+                          <td style={{ padding: '8px', textAlign: 'center' }}>
+                            {isParc ? (
+                              <span style={{
+                                fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 99,
+                                background: C.purple + '18', color: C.purple
+                              }}>
+                                {t.parcela_atual}/{t.parcelas}
+                              </span>
+                            ) : (
+                              <span style={{ color: C.gray, fontSize: 11 }}>—</span>
+                            )}
+                          </td>
+                          <td style={{ padding: '8px' }}>
+                            <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 99, background: C.navy + '12', color: C.navy }}>
+                              {t.cat}
+                            </span>
+                          </td>
+                          <td style={{ padding: '8px', color: C.grayD, whiteSpace: 'nowrap' }}>
+                            {formatDateBR(t.data_vencimento)}
+                          </td>
+                          <td style={{ padding: '8px', textAlign: 'right', fontWeight: 700, color: C.red, whiteSpace: 'nowrap' }}>
+                            {fmt(t.valor)}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Nota sobre parcelamentos */}
+              {parcelados.length > 0 && (
+                <div style={{ marginTop: 12, padding: '10px 14px', background: C.purple + '10', borderRadius: 8, border: '1px solid ' + C.purple + '30', fontSize: 12, color: C.purple }}>
+                  <i className="ti ti-info-circle" style={{ marginRight: 6 }} />
+                  <strong>{parcelados.length} compra(s) parcelada(s)</strong> foram identificadas.
+                  Cada uma é importada com a parcela atual e o total de parcelas.
+                  O avanço das parcelas seguintes é controlado na aba Cartão.
+                </div>
+              )}
             </>
           )}
 
           {processing && (
-            <div style={{ textAlign: 'center', padding: '2rem' }}>
-              <i className="ti ti-loader-2" style={{ animation: 'spin 1s linear infinite', fontSize: 32 }} />
-              <div style={{ marginTop: 10, fontSize: 13, color: C.grayD }}>Importando transações...</div>
+            <div style={{ textAlign: 'center', padding: '2rem', color: C.grayD }}>
+              <i className="ti ti-loader-2" style={{ fontSize: 32, animation: 'spin 1s linear infinite', display: 'block', marginBottom: 10 }} />
+              Importando {selecionados.size} transações...
             </div>
           )}
         </div>
+
+        {/* Footer */}
+        {preview.length > 0 && !processing && (
+          <div style={{ padding: '1rem 1.5rem', borderTop: '1px solid ' + C.border, display: 'flex', gap: 10, justifyContent: 'flex-end', flexShrink: 0 }}>
+            <button onClick={onClose} style={{ ...styles.buttonPrimary, background: C.grayD }}>Cancelar</button>
+            <button
+              onClick={handleImport}
+              disabled={selecionados.size === 0}
+              style={{ ...styles.buttonSuccess, opacity: selecionados.size === 0 ? 0.5 : 1, gap: 6 }}
+            >
+              <i className="ti ti-device-floppy" style={{ fontSize: 14 }} />
+              Importar {selecionados.size} lançamento(s)
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
 }
+
+function formatDateBR(iso) {
+  if (!iso) return '—';
+  const [y, m, d] = iso.split('-');
+  return `${d}/${m}/${y}`;
+}
+
