@@ -8,7 +8,7 @@ import { Toast } from '../Common/Toast';
 import { PeriodoSelector } from '../Common/PeriodoSelector';
 import { usePeriodo } from '../../hooks/usePeriodo';
 import { LancamentosScreen } from '../Lancamentos/LancamentosScreen';
-import { FaturasScreen } from '../Faturas/FaturasScreen';
+import { FaturasScreen } from '../Cartao/FaturasScreen';
 import { MetasScreen } from '../Metas/MetasScreen';
 import { GerenciarCategorias } from '../Categorias/GerenciarCategorias';
 import { IAScreen } from '../IA/IAScreen';
