@@ -5,9 +5,9 @@ import sb from '../../services/supabase';
 import { fmt } from '../../utils/formatters';
 
 export function ImportFaturaModal({ isOpen, onClose, onImport, token, uid }) {
-  const [file, setFile] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [preview, setPreview] = useState([]);
+  const [file, setFile]           = useState(null);
+  const [loading, setLoading]     = useState(false);
+  const [preview, setPreview]     = useState([]);
   const [processing, setProcessing] = useState(false);
   const [selecionados, setSelecionados] = useState(new Set());
 
@@ -29,43 +29,42 @@ export function ImportFaturaModal({ isOpen, onClose, onImport, token, uid }) {
     try {
       const transactions = await extractDataFromPDF(file);
       setPreview(transactions);
-      // Seleciona todos por padrão
       setSelecionados(new Set(transactions.map((_, i) => i)));
     } catch (err) {
       console.error('Erro ao processar PDF:', err);
-      alert('Erro ao processar o PDF. Verifique se o arquivo é uma fatura de cartão válida.');
+      alert('Erro ao processar o PDF. Verifique se é uma fatura de cartão válida.');
     }
     setLoading(false);
   };
 
   /**
-   * Verificação de duplicata:
-   * Para parcelamentos: considera descricao + parcela_atual + valor (evita reimportar a mesma parcela)
-   * Para compras simples: considera descricao + data_compra + valor
+   * Verifica duplicata conforme o padrão real do banco:
+   *
+   * Parcelado: mesma descrição (parcial) + parcela_atual + parcelas + valor
+   * Simples:   mesma descrição (parcial) + data_compra + valor
    */
   const checkDuplicate = async (t) => {
     try {
+      const descSlug = encodeURIComponent(t.descricao.slice(0, 20));
       let query;
       if (t.parcelas) {
-        // Parcelamento: checar pela parcela específica
-        query = `/lancamentos?user_id=eq.${uid}` +
-          `&descricao=ilike.*${encodeURIComponent(t.descricao.slice(0, 25))}*` +
-          `&parcela_atual=eq.${t.parcela_atual}` +
-          `&parcelas=eq.${t.parcelas}` +
-          `&valor=eq.${t.valor}` +
-          `&select=id`;
+        query = `/lancamentos?user_id=eq.${uid}`
+          + `&descricao=ilike.*${descSlug}*`
+          + `&parcela_atual=eq.${t.parcela_atual}`
+          + `&parcelas=eq.${t.parcelas}`
+          + `&valor=eq.${t.valor}`
+          + `&select=id`;
       } else {
-        // Compra simples: checar por data + descrição + valor
-        query = `/lancamentos?user_id=eq.${uid}` +
-          `&data_compra=eq.${t.data_compra}` +
-          `&descricao=ilike.*${encodeURIComponent(t.descricao.slice(0, 25))}*` +
-          `&valor=eq.${t.valor}` +
-          `&select=id`;
+        query = `/lancamentos?user_id=eq.${uid}`
+          + `&data_compra=eq.${t.data_compra}`
+          + `&descricao=ilike.*${descSlug}*`
+          + `&valor=eq.${t.valor}`
+          + `&select=id`;
       }
       const existing = await sb(query, { token });
       return Array.isArray(existing) && existing.length > 0;
     } catch {
-      return false; // Em caso de erro, deixa importar
+      return false;
     }
   };
 
@@ -80,11 +79,7 @@ export function ImportFaturaModal({ isOpen, onClose, onImport, token, uid }) {
       try {
         const isDup = await checkDuplicate(t);
         if (isDup) { duplicados++; continue; }
-
-        await sb("/lancamentos", {
-          method: "POST", token,
-          body: { ...t, user_id: uid }
-        });
+        await sb("/lancamentos", { method: "POST", token, body: { ...t, user_id: uid } });
         novos++;
       } catch (err) {
         console.error('Erro ao salvar:', err);
@@ -92,25 +87,21 @@ export function ImportFaturaModal({ isOpen, onClose, onImport, token, uid }) {
       }
     }
 
-    alert(`Importação concluída!\n✅ Novos: ${novos}\n⚠️ Duplicados: ${duplicados}\n❌ Erros: ${erros}`);
+    alert(`Importação concluída!\n✅ Novos: ${novos}\n⚠️ Duplicados ignorados: ${duplicados}\n❌ Erros: ${erros}`);
     if (novos > 0) onImport();
     setProcessing(false);
     onClose();
   };
 
-  const toggleItem = (i) => {
-    setSelecionados(prev => {
-      const n = new Set(prev);
-      n.has(i) ? n.delete(i) : n.add(i);
-      return n;
-    });
-  };
+  const toggleItem = (i) => setSelecionados(prev => {
+    const n = new Set(prev);
+    n.has(i) ? n.delete(i) : n.add(i);
+    return n;
+  });
 
-  const toggleTodos = () => {
-    setSelecionados(prev =>
-      prev.size === preview.length ? new Set() : new Set(preview.map((_, i) => i))
-    );
-  };
+  const toggleTodos = () => setSelecionados(prev =>
+    prev.size === preview.length ? new Set() : new Set(preview.map((_, i) => i))
+  );
 
   if (!isOpen) return null;
 
@@ -119,23 +110,43 @@ export function ImportFaturaModal({ isOpen, onClose, onImport, token, uid }) {
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-content" onClick={e => e.stopPropagation()}
-        style={{ maxWidth: 780, width: '94%', maxHeight: '90vh', display: 'flex', flexDirection: 'column' }}>
-
+      <div
+        className="modal-content"
+        onClick={e => e.stopPropagation()}
+        style={{ maxWidth: 820, width: '95%', maxHeight: '92vh', display: 'flex', flexDirection: 'column' }}
+      >
         {/* Header */}
-        <div style={{ padding: '1.25rem 1.5rem', borderBottom: '1px solid ' + C.border, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
-          <div>
-            <h3 style={{ fontSize: 17, fontWeight: 700, color: C.navy, margin: 0 }}>Importar Fatura em PDF</h3>
-            <div style={{ fontSize: 11, color: C.grayD, marginTop: 2 }}>
-              Compras parceladas são reconhecidas automaticamente (ex: 2/6)
+        <div style={{ padding: '1.25rem 1.5rem', borderBottom: '1px solid ' + C.border, flexShrink: 0 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+            <div>
+              <h3 style={{ fontSize: 17, fontWeight: 700, color: C.navy, margin: '0 0 4px' }}>
+                Importar Fatura em PDF
+              </h3>
+              <div style={{ fontSize: 11, color: C.grayD }}>
+                Parcelamentos identificados automaticamente pelo padrão <strong>N/T</strong> na fatura
+              </div>
             </div>
+            <button onClick={onClose} style={styles.buttonIcon}>
+              <i className="ti ti-x" style={{ fontSize: 20, color: C.grayD }} />
+            </button>
           </div>
-          <button onClick={onClose} style={styles.buttonIcon}>
-            <i className="ti ti-x" style={{ fontSize: 20, color: C.grayD }} />
-          </button>
+
+          {/* Legenda de datas */}
+          <div style={{ marginTop: 12, display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+            {[
+              { icon: 'ti-calendar', color: C.navy, text: 'Data compra = data da transação na fatura' },
+              { icon: 'ti-calendar-due', color: C.purple, text: 'Parcelado: vencimento = data da última parcela' },
+              { icon: 'ti-calendar-check', color: C.green, text: 'Simples: vencimento = data da fatura' },
+            ].map(k => (
+              <div key={k.text} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, color: C.grayD }}>
+                <i className={'ti ' + k.icon} style={{ fontSize: 13, color: k.color }} />
+                {k.text}
+              </div>
+            ))}
+          </div>
         </div>
 
-        {/* Corpo scrollável */}
+        {/* Corpo */}
         <div style={{ flex: 1, overflowY: 'auto', padding: '1.25rem 1.5rem' }}>
 
           {/* Seleção de arquivo */}
@@ -147,33 +158,45 @@ export function ImportFaturaModal({ isOpen, onClose, onImport, token, uid }) {
 
           {file && !loading && preview.length === 0 && (
             <button onClick={handlePreview} style={{ ...styles.buttonPrimary, gap: 6 }}>
-              <i className="ti ti-eye" style={{ fontSize: 14 }} /> Visualizar transações
+              <i className="ti ti-eye" style={{ fontSize: 14 }} />
+              Visualizar transações
             </button>
           )}
 
           {loading && (
-            <div style={{ textAlign: 'center', padding: '2rem', color: C.grayD }}>
-              <i className="ti ti-loader-2" style={{ fontSize: 32, animation: 'spin 1s linear infinite', display: 'block', marginBottom: 10 }} />
-              Analisando PDF e identificando parcelamentos...
+            <div style={{ textAlign: 'center', padding: '2.5rem', color: C.grayD }}>
+              <i className="ti ti-loader-2" style={{ fontSize: 36, animation: 'spin 1s linear infinite', display: 'block', marginBottom: 12 }} />
+              <div style={{ fontSize: 13 }}>Analisando PDF e identificando parcelamentos...</div>
             </div>
           )}
 
           {preview.length > 0 && !processing && (
             <>
-              {/* Resumo da importação */}
+              {/* Resumo */}
               <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
                 {[
-                  { label: 'Total encontrado', value: preview.length, color: C.navy },
+                  { label: 'Encontrados', value: preview.length, color: C.navy },
                   { label: 'Parcelamentos', value: parcelados.length, color: C.purple },
                   { label: 'Compras simples', value: simples.length, color: C.green },
                   { label: 'Selecionados', value: selecionados.size, color: C.amber },
                 ].map(k => (
-                  <div key={k.label} style={{ flex: 1, minWidth: 110, padding: '10px 12px', background: k.color + '10', border: '1px solid ' + k.color + '30', borderRadius: 10 }}>
+                  <div key={k.label} style={{ flex: 1, minWidth: 100, padding: '10px 12px', background: k.color + '10', border: '1px solid ' + k.color + '28', borderRadius: 10 }}>
                     <div style={{ fontSize: 10, color: C.grayD, fontWeight: 600, textTransform: 'uppercase' }}>{k.label}</div>
                     <div style={{ fontSize: 20, fontWeight: 700, color: k.color }}>{k.value}</div>
                   </div>
                 ))}
               </div>
+
+              {/* Nota parcelamentos */}
+              {parcelados.length > 0 && (
+                <div style={{ marginBottom: 12, padding: '10px 14px', background: C.purple + '0e', border: '1px solid ' + C.purple + '30', borderRadius: 8, fontSize: 12, color: '#5b21b6' }}>
+                  <i className="ti ti-info-circle" style={{ marginRight: 6 }} />
+                  <strong>{parcelados.length} parcelamento(s) detectado(s).</strong>{' '}
+                  A <em>data de compra</em> é o dia em que esta parcela aparece na fatura.
+                  A <em>data de vencimento</em> é calculada como a data da <strong>última parcela</strong>{' '}
+                  (vencimento da fatura + parcelas restantes em meses).
+                </div>
+              )}
 
               {/* Controles */}
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
@@ -185,10 +208,10 @@ export function ImportFaturaModal({ isOpen, onClose, onImport, token, uid }) {
 
               {/* Tabela de prévia */}
               <div style={{ border: '1px solid ' + C.border, borderRadius: 10, overflow: 'hidden' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
                   <thead>
                     <tr style={{ background: C.slate, borderBottom: '2px solid ' + C.border }}>
-                      <th style={{ width: 32, padding: '8px' }}></th>
+                      <th style={{ width: 28, padding: '8px' }} />
                       <th style={{ padding: '8px', textAlign: 'left', color: C.grayD, fontWeight: 600 }}>Data compra</th>
                       <th style={{ padding: '8px', textAlign: 'left', color: C.grayD, fontWeight: 600 }}>Descrição</th>
                       <th style={{ padding: '8px', textAlign: 'center', color: C.grayD, fontWeight: 600 }}>Parcela</th>
@@ -202,40 +225,38 @@ export function ImportFaturaModal({ isOpen, onClose, onImport, token, uid }) {
                       const sel = selecionados.has(i);
                       const isParc = !!t.parcelas;
                       return (
-                        <tr key={i}
+                        <tr
+                          key={i}
                           onClick={() => toggleItem(i)}
                           style={{
                             borderBottom: i < preview.length - 1 ? '1px solid ' + C.border : 'none',
-                            background: sel ? (isParc ? C.purple + '08' : C.green + '06') : '#fff',
+                            background: !sel ? '#fff' : isParc ? C.purple + '08' : C.green + '06',
                             cursor: 'pointer',
-                            opacity: sel ? 1 : 0.45,
-                            transition: 'all .1s',
+                            opacity: sel ? 1 : 0.4,
+                            transition: 'opacity .1s',
                           }}
                         >
                           <td style={{ padding: '8px', textAlign: 'center' }}>
                             <div style={{
-                              width: 16, height: 16, borderRadius: 4,
+                              width: 15, height: 15, borderRadius: 4, display: 'inline-flex',
+                              alignItems: 'center', justifyContent: 'center',
                               border: '2px solid ' + (sel ? C.navy : C.border),
                               background: sel ? C.navy : '#fff',
-                              display: 'inline-flex', alignItems: 'center', justifyContent: 'center'
                             }}>
-                              {sel && <i className="ti ti-check" style={{ fontSize: 10, color: '#fff' }} />}
+                              {sel && <i className="ti ti-check" style={{ fontSize: 9, color: '#fff' }} />}
                             </div>
                           </td>
                           <td style={{ padding: '8px', color: C.grayD, whiteSpace: 'nowrap' }}>
-                            {formatDateBR(t.data_compra)}
+                            {formatBR(t.data_compra)}
                           </td>
-                          <td style={{ padding: '8px', fontWeight: 500, maxWidth: 200 }}>
+                          <td style={{ padding: '8px', fontWeight: 500, maxWidth: 220 }}>
                             <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                               {t.descricao}
                             </div>
                           </td>
                           <td style={{ padding: '8px', textAlign: 'center' }}>
                             {isParc ? (
-                              <span style={{
-                                fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 99,
-                                background: C.purple + '18', color: C.purple
-                              }}>
+                              <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 99, background: C.purple + '18', color: C.purple }}>
                                 {t.parcela_atual}/{t.parcelas}
                               </span>
                             ) : (
@@ -243,12 +264,19 @@ export function ImportFaturaModal({ isOpen, onClose, onImport, token, uid }) {
                             )}
                           </td>
                           <td style={{ padding: '8px' }}>
-                            <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 99, background: C.navy + '12', color: C.navy }}>
+                            <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 99, background: C.navy + '12', color: C.navy }}>
                               {t.cat}
                             </span>
                           </td>
-                          <td style={{ padding: '8px', color: C.grayD, whiteSpace: 'nowrap' }}>
-                            {formatDateBR(t.data_vencimento)}
+                          <td style={{ padding: '8px', whiteSpace: 'nowrap' }}>
+                            <span style={{ fontSize: 11, color: isParc ? C.purple : C.grayD }}>
+                              {formatBR(t.data_vencimento)}
+                            </span>
+                            {isParc && (
+                              <span style={{ fontSize: 10, color: C.gray, marginLeft: 4 }}>
+                                (últ. parcela)
+                              </span>
+                            )}
                           </td>
                           <td style={{ padding: '8px', textAlign: 'right', fontWeight: 700, color: C.red, whiteSpace: 'nowrap' }}>
                             {fmt(t.valor)}
@@ -259,23 +287,13 @@ export function ImportFaturaModal({ isOpen, onClose, onImport, token, uid }) {
                   </tbody>
                 </table>
               </div>
-
-              {/* Nota sobre parcelamentos */}
-              {parcelados.length > 0 && (
-                <div style={{ marginTop: 12, padding: '10px 14px', background: C.purple + '10', borderRadius: 8, border: '1px solid ' + C.purple + '30', fontSize: 12, color: C.purple }}>
-                  <i className="ti ti-info-circle" style={{ marginRight: 6 }} />
-                  <strong>{parcelados.length} compra(s) parcelada(s)</strong> foram identificadas.
-                  Cada uma é importada com a parcela atual e o total de parcelas.
-                  O avanço das parcelas seguintes é controlado na aba Cartão.
-                </div>
-              )}
             </>
           )}
 
           {processing && (
-            <div style={{ textAlign: 'center', padding: '2rem', color: C.grayD }}>
-              <i className="ti ti-loader-2" style={{ fontSize: 32, animation: 'spin 1s linear infinite', display: 'block', marginBottom: 10 }} />
-              Importando {selecionados.size} transações...
+            <div style={{ textAlign: 'center', padding: '2.5rem', color: C.grayD }}>
+              <i className="ti ti-loader-2" style={{ fontSize: 36, animation: 'spin 1s linear infinite', display: 'block', marginBottom: 12 }} />
+              <div>Importando {selecionados.size} lançamento(s)...</div>
             </div>
           )}
         </div>
@@ -283,7 +301,9 @@ export function ImportFaturaModal({ isOpen, onClose, onImport, token, uid }) {
         {/* Footer */}
         {preview.length > 0 && !processing && (
           <div style={{ padding: '1rem 1.5rem', borderTop: '1px solid ' + C.border, display: 'flex', gap: 10, justifyContent: 'flex-end', flexShrink: 0 }}>
-            <button onClick={onClose} style={{ ...styles.buttonPrimary, background: C.grayD }}>Cancelar</button>
+            <button onClick={onClose} style={{ ...styles.buttonPrimary, background: C.grayD }}>
+              Cancelar
+            </button>
             <button
               onClick={handleImport}
               disabled={selecionados.size === 0}
@@ -299,9 +319,8 @@ export function ImportFaturaModal({ isOpen, onClose, onImport, token, uid }) {
   );
 }
 
-function formatDateBR(iso) {
+function formatBR(iso) {
   if (!iso) return '—';
   const [y, m, d] = iso.split('-');
   return `${d}/${m}/${y}`;
 }
-
